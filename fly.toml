@@ -11,6 +11,9 @@ primary_region = "waw"  # Варшава (близко к РФ). Можно см
   PORT = "3000"
   DATA_DIR = "/data"
   UPLOAD_DIR = "/data/uploads"
+  # Chat ID владельца для Telegram-уведомлений (не секрет — бесполезен без токена бота).
+  # Токен бота задаётся отдельно как секрет: fly secrets set TELEGRAM_BOT_TOKEN='...'
+  TELEGRAM_CHAT_ID = "8763963310"
 
 [http_service]
   internal_port = 3000
