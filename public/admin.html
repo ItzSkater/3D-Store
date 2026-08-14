@@ -12,6 +12,7 @@
       <a class="brand" href="/"><span class="logo">🧊</span><span>3D-Store · Владелец</span></a>
       <nav class="nav-links" id="ownerNav" style="display:none;">
         <a class="btn ghost small" href="/">На сайт</a>
+        <button class="btn ghost small" id="notifyBtn">🔔 Уведомления</button>
         <button class="btn ghost small" id="changePassBtn">Сменить пароль</button>
         <button class="btn small" id="ownerLogout">Выйти</button>
       </nav>
@@ -151,6 +152,43 @@
       <div class="actions">
         <button class="btn ghost" data-passclose>Отмена</button>
         <button class="btn primary" id="savePassBtn">Сохранить</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Модалка уведомлений (Telegram) -->
+  <div class="modal-backdrop" id="notifyModal">
+    <div class="modal">
+      <header><h2>🔔 Уведомления в Telegram</h2><button class="x" data-notifyclose>&times;</button></header>
+      <div class="content">
+        <div class="notice">
+          Получайте мгновенные уведомления о новых заказах и сообщениях прямо в Telegram.
+          <br/><br/>
+          <b>Как настроить (2 минуты):</b>
+          <ol style="margin:8px 0 0;padding-left:20px;">
+            <li>В Telegram откройте <code>@BotFather</code> → команда <code>/newbot</code> → придумайте имя. Получите <b>токен</b> вида <code>123456:ABC...</code>.</li>
+            <li>Напишите своему новому боту любое сообщение (например «привет»).</li>
+            <li>Узнайте свой <b>Chat ID</b>: откройте бота <code>@userinfobot</code> — он пришлёт ваш ID (число).</li>
+            <li>Вставьте токен и Chat ID ниже и сохраните.</li>
+          </ol>
+        </div>
+
+        <div id="notifyStatus" class="hint"></div>
+
+        <label>Токен бота</label>
+        <input type="text" id="tgToken" placeholder="123456789:AAExxxxxxxxxxxxxxxxxxxxxxxxxxx" autocomplete="off" />
+        <div class="hint" id="tokenHint"></div>
+
+        <label>Chat ID</label>
+        <input type="text" id="tgChatId" placeholder="напр. 123456789" autocomplete="off" />
+
+        <div class="msg-error" id="notifyError"></div>
+        <div class="msg-ok" id="notifyOk"></div>
+      </div>
+      <div class="actions">
+        <button class="btn danger" id="tgClearBtn" style="margin-right:auto;">Отключить</button>
+        <button class="btn ghost" id="tgTestBtn">Проверить</button>
+        <button class="btn primary" id="tgSaveBtn">Сохранить</button>
       </div>
     </div>
   </div>

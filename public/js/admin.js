@@ -331,4 +331,77 @@ $('savePassBtn').addEventListener('click', async () => {
   setTimeout(() => passModal.classList.remove('open'), 1200);
 });
 
+// ---------- Настройки уведомлений (Telegram) ----------
+const notifyModal = $('notifyModal');
+async function openNotify() {
+  $('notifyError').textContent = '';
+  $('notifyOk').textContent = '';
+  $('tgToken').value = '';
+  $('tgChatId').value = '';
+  $('tokenHint').textContent = '';
+  const res = await fetch('/api/settings');
+  if (res.ok) {
+    const s = await res.json();
+    $('tgChatId').value = s.telegram_chat_id || '';
+    $('tokenHint').textContent = s.telegram_token_set
+      ? 'Токен уже сохранён. Оставьте поле пустым, чтобы не менять его.'
+      : 'Токен ещё не задан.';
+    $('notifyStatus').innerHTML = s.telegram_configured
+      ? '<span style="color:var(--ok);">● Уведомления включены</span>'
+      : '<span style="color:var(--warn);">● Уведомления пока не настроены</span>';
+  }
+  notifyModal.classList.add('open');
+}
+$('notifyBtn').addEventListener('click', openNotify);
+notifyModal.querySelectorAll('[data-notifyclose]').forEach((el) => el.addEventListener('click', () => notifyModal.classList.remove('open')));
+notifyModal.addEventListener('click', (e) => { if (e.target === notifyModal) notifyModal.classList.remove('open'); });
+
+$('tgSaveBtn').addEventListener('click', async () => {
+  $('notifyError').textContent = ''; $('notifyOk').textContent = '';
+  const res = await fetch('/api/settings', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ telegram_bot_token: $('tgToken').value, telegram_chat_id: $('tgChatId').value }),
+  });
+  const data = await res.json();
+  if (!res.ok) { $('notifyError').textContent = data.error || 'Ошибка'; return; }
+  $('notifyOk').textContent = data.telegram_configured ? 'Сохранено ✓ Уведомления включены.' : 'Сохранено. Укажите и токен, и Chat ID.';
+  $('tgToken').value = '';
+  openNotifyRefresh();
+});
+
+async function openNotifyRefresh() {
+  const res = await fetch('/api/settings');
+  if (!res.ok) return;
+  const s = await res.json();
+  $('notifyStatus').innerHTML = s.telegram_configured
+    ? '<span style="color:var(--ok);">● Уведомления включены</span>'
+    : '<span style="color:var(--warn);">● Уведомления пока не настроены</span>';
+  $('tokenHint').textContent = s.telegram_token_set ? 'Токен уже сохранён. Оставьте поле пустым, чтобы не менять его.' : 'Токен ещё не задан.';
+}
+
+$('tgTestBtn').addEventListener('click', async () => {
+  $('notifyError').textContent = ''; $('notifyOk').textContent = '';
+  // Сначала сохраним введённые значения, затем отправим тест
+  await fetch('/api/settings', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ telegram_bot_token: $('tgToken').value, telegram_chat_id: $('tgChatId').value }),
+  });
+  const res = await fetch('/api/settings/test-telegram', { method: 'POST' });
+  const data = await res.json();
+  if (!res.ok) { $('notifyError').textContent = 'Не отправлено: ' + (data.error || 'ошибка'); return; }
+  $('notifyOk').textContent = 'Тестовое сообщение отправлено — проверьте Telegram ✓';
+  $('tgToken').value = '';
+  openNotifyRefresh();
+});
+
+$('tgClearBtn').addEventListener('click', async () => {
+  if (!confirm('Отключить Telegram-уведомления?')) return;
+  await fetch('/api/settings/telegram-clear', { method: 'POST' });
+  $('tgToken').value = ''; $('tgChatId').value = '';
+  $('notifyOk').textContent = 'Уведомления отключены.';
+  openNotifyRefresh();
+});
+
 boot();

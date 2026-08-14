@@ -9,11 +9,12 @@ const bcrypt = require('bcryptjs');
 const multer = require('multer');
 
 const db = require('./db');
+const notify = require('./notify');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 const ROOT = path.join(__dirname, '..');
-const UPLOAD_DIR = path.join(ROOT, 'uploads');
+const UPLOAD_DIR = process.env.UPLOAD_DIR || path.join(ROOT, 'uploads');
 if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 
 app.use(express.json());
@@ -203,6 +204,45 @@ app.post('/api/change-password', requireOwner, (req, res) => {
   res.json({ ok: true });
 });
 
+// --- Настройки уведомлений (Telegram) ---
+function saveSetting(key, value) {
+  db.prepare(
+    'INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value'
+  ).run(key, value);
+}
+
+app.get('/api/settings', requireOwner, (req, res) => {
+  const cfg = notify.telegramConfig();
+  res.json({
+    telegram_chat_id: cfg.chatId || '',
+    telegram_token_set: Boolean(cfg.token),
+    telegram_configured: notify.isConfigured(),
+  });
+});
+
+app.post('/api/settings', requireOwner, (req, res) => {
+  const { telegram_bot_token, telegram_chat_id } = req.body || {};
+  // Токен обновляем только если прислан непустой (чтобы не затирать при пустом поле)
+  if (typeof telegram_bot_token === 'string' && telegram_bot_token.trim()) {
+    saveSetting('telegram_bot_token', telegram_bot_token.trim());
+  }
+  if (typeof telegram_chat_id === 'string') {
+    saveSetting('telegram_chat_id', telegram_chat_id.trim());
+  }
+  res.json({ ok: true, telegram_configured: notify.isConfigured() });
+});
+
+app.post('/api/settings/telegram-clear', requireOwner, (req, res) => {
+  db.prepare("DELETE FROM settings WHERE key IN ('telegram_bot_token','telegram_chat_id')").run();
+  res.json({ ok: true });
+});
+
+app.post('/api/settings/test-telegram', requireOwner, async (req, res) => {
+  const result = await notify.sendTelegram('✅ Проверка связи: уведомления 3D-Store работают.');
+  if (!result.ok) return res.status(400).json({ error: result.error });
+  res.json({ ok: true });
+});
+
 // --- Публичный список моделей ---
 function attachVariants(product) {
   const variants = db
@@ -349,6 +389,10 @@ app.post('/api/orders', requireUser, (req, res) => {
     db.prepare('INSERT INTO messages (order_id, sender, body) VALUES (?, ?, ?)').run(orderId, 'customer', firstMsg);
   }
 
+  // Уведомление владельцу (не блокирует ответ клиенту)
+  const fullOrder = db.prepare('SELECT * FROM orders WHERE id = ?').get(orderId);
+  notify.notifyNewOrder({ ...fullOrder, username: req.user.username });
+
   res.json({ ok: true, token });
 });
 
@@ -433,6 +477,8 @@ app.post('/api/chat/by-token/:token', (req, res) => {
   const body = String(req.body.body || '').trim();
   if (!body) return res.status(400).json({ error: 'Пустое сообщение' });
   db.prepare('INSERT INTO messages (order_id, sender, body) VALUES (?, ?, ?)').run(ctx.order.id, 'customer', body);
+  const acc = ctx.order.user_id ? db.prepare('SELECT username FROM users WHERE id = ?').get(ctx.order.user_id) : null;
+  notify.notifyNewMessage({ ...ctx.order, username: acc ? acc.username : null }, body);
   res.json({ messages: getMessages(ctx.order.id) });
 });
 

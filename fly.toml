@@ -1,0 +1,31 @@
+# Конфигурация Fly.io для 3D-Store.
+# Перед первым деплоем поменяйте app на своё уникальное имя
+# (или выполните `fly launch`, который подставит его сам).
+
+app = "3d-store"
+primary_region = "waw"  # Варшава (близко к РФ). Можно сменить: fra, ams, cdg и т.д.
+
+[build]
+
+[env]
+  PORT = "3000"
+  DATA_DIR = "/data"
+  UPLOAD_DIR = "/data/uploads"
+
+[http_service]
+  internal_port = 3000
+  force_https = true
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  min_machines_running = 0
+
+# Постоянное хранилище: база SQLite и загруженные фото.
+# Том нужно создать один раз: fly volumes create data --size 1 --region waw
+[mounts]
+  source = "data"
+  destination = "/data"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"
+  cpus = 1
