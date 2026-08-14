@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Кабинет владельца — 3D-Store</title>
+  <link rel="stylesheet" href="/css/style.css" />
+</head>
+<body>
+  <header class="site">
+    <div class="container">
+      <a class="brand" href="/"><span class="logo">🧊</span><span>3D-Store · Владелец</span></a>
+      <nav class="nav-links" id="ownerNav" style="display:none;">
+        <a class="btn ghost small" href="/">На сайт</a>
+        <button class="btn ghost small" id="changePassBtn">Сменить пароль</button>
+        <button class="btn small" id="ownerLogout">Выйти</button>
+      </nav>
+    </div>
+  </header>
+
+  <main class="container">
+    <!-- Экран входа -->
+    <div id="loginScreen" style="display:none;">
+      <div class="hero"><h1>Вход для владельца</h1><p>Управление моделями, заказами и чатом с клиентами.</p></div>
+      <div class="modal" style="max-width:420px;margin:0;">
+        <div class="content">
+          <label>Пароль владельца</label>
+          <input type="password" id="ownerPassword" placeholder="Введите пароль" />
+          <div class="hint">Пароль по умолчанию: <code>admin</code> — обязательно смените его после входа.</div>
+          <div class="msg-error" id="loginError"></div>
+        </div>
+        <div class="actions"><button class="btn primary" id="ownerLoginBtn">Войти</button></div>
+      </div>
+    </div>
+
+    <!-- Панель владельца -->
+    <div id="ownerPanel" style="display:none;">
+      <div class="tabs">
+        <div class="tab active" data-tab="products">Модели</div>
+        <div class="tab" data-tab="orders">Заказы <span id="orderBadge"></span></div>
+      </div>
+
+      <!-- Вкладка: модели -->
+      <div id="tab-products">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin:10px 0;">
+          <h2 style="margin:0;">Каталог моделей</h2>
+          <button class="btn primary" id="addProductBtn">+ Добавить модель</button>
+        </div>
+        <div id="productsAdmin" class="grid"></div>
+      </div>
+
+      <!-- Вкладка: заказы -->
+      <div id="tab-orders" style="display:none;">
+        <div id="ordersAdmin" class="orders-list"></div>
+      </div>
+    </div>
+  </main>
+
+  <!-- Модалка модели -->
+  <div class="modal-backdrop" id="productModal">
+    <div class="modal wide">
+      <header>
+        <h2 id="productModalTitle">Новая модель</h2>
+        <button class="x" data-pclose>&times;</button>
+      </header>
+      <div class="content">
+        <input type="hidden" id="pId" />
+        <label>Название *</label>
+        <input type="text" id="pName" placeholder="Например, Подставка для телефона" />
+
+        <label>Описание</label>
+        <textarea id="pDesc" placeholder="Материал, размеры, особенности печати…"></textarea>
+
+        <div class="row">
+          <div>
+            <label>Базовая цена (₽) *</label>
+            <input type="number" id="pPrice" min="0" step="1" placeholder="0" />
+          </div>
+          <div>
+            <label>Показывать в каталоге</label>
+            <select id="pActive"><option value="1">Да</option><option value="0">Скрыть</option></select>
+          </div>
+        </div>
+
+        <label>Фото модели</label>
+        <input type="file" id="pImage" accept="image/*" />
+        <div id="currentImage" class="hint"></div>
+
+        <label>Варианты филамента</label>
+        <div class="hint" style="margin-top:0;margin-bottom:8px;">Название и доплата к базовой цене (0 — без доплаты). Оставьте пустым, если вариантов нет.</div>
+        <div id="variantsBox"></div>
+        <button class="btn ghost small" id="addVariantBtn" type="button">+ Добавить вариант</button>
+
+        <div class="msg-error" id="productError"></div>
+      </div>
+      <div class="actions">
+        <button class="btn danger" id="deleteProductBtn" style="margin-right:auto;display:none;">Удалить</button>
+        <button class="btn ghost" data-pclose>Отмена</button>
+        <button class="btn primary" id="saveProductBtn">Сохранить</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Модалка заказа/чата -->
+  <div class="modal-backdrop" id="orderModal">
+    <div class="modal wide">
+      <header>
+        <h2 id="orderModalTitle">Заказ</h2>
+        <button class="x" data-oclose>&times;</button>
+      </header>
+      <div class="content">
+        <div id="orderDetails"></div>
+        <label>Статус заказа</label>
+        <div class="row" style="align-items:flex-end;">
+          <select id="orderStatus">
+            <option value="new">Новый</option>
+            <option value="confirmed">Подтверждён</option>
+            <option value="shipped">Отправлен</option>
+            <option value="done">Выполнен</option>
+            <option value="cancelled">Отменён</option>
+          </select>
+          <button class="btn small" id="saveStatusBtn" style="flex:0 0 auto;">Сохранить статус</button>
+        </div>
+
+        <label style="margin-top:16px;">Чат с клиентом</label>
+        <div class="card" style="overflow:visible;">
+          <div class="chat as-owner">
+            <div class="chat-messages" id="ownerChatMessages"><div class="empty">Загрузка…</div></div>
+            <div class="chat-input">
+              <input type="text" id="ownerChatInput" placeholder="Ответить клиенту…" autocomplete="off" />
+              <button class="btn primary" id="ownerChatSend">Отправить</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Модалка смены пароля -->
+  <div class="modal-backdrop" id="passModal">
+    <div class="modal" style="max-width:420px;">
+      <header><h2>Смена пароля</h2><button class="x" data-passclose>&times;</button></header>
+      <div class="content">
+        <label>Текущий пароль</label>
+        <input type="password" id="curPass" />
+        <label>Новый пароль</label>
+        <input type="password" id="newPass" placeholder="Минимум 4 символа" />
+        <div class="msg-error" id="passError"></div>
+        <div class="msg-ok" id="passOk"></div>
+      </div>
+      <div class="actions">
+        <button class="btn ghost" data-passclose>Отмена</button>
+        <button class="btn primary" id="savePassBtn">Сохранить</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="/js/admin.js"></script>
+</body>
+</html>

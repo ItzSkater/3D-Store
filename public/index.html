@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>3D-Store — модели для 3D-печати</title>
+  <link rel="stylesheet" href="/css/style.css" />
+</head>
+<body>
+  <header class="site">
+    <div class="container">
+      <a class="brand" href="/">
+        <span class="logo">🧊</span>
+        <span>3D-Store</span>
+      </a>
+      <nav class="nav-links" id="navLinks">
+        <a class="btn ghost small" href="/order">Мои заказы</a>
+        <span id="authArea"></span>
+        <a class="btn small" href="/admin">Владельцу</a>
+      </nav>
+    </div>
+  </header>
+
+  <main class="container">
+    <section class="hero">
+      <h1>Модели, напечатанные на 3D-принтере</h1>
+      <p>Выбирайте готовые модели, указывайте нужный филамент и оформляйте заказ. Обсудить детали можно в чате прямо на сайте.</p>
+      <div class="badge-cod">💵 Оплата при получении</div>
+    </section>
+
+    <section id="catalog" class="grid">
+      <div class="empty">Загрузка каталога…</div>
+    </section>
+  </main>
+
+  <!-- Модалка заказа -->
+  <div class="modal-backdrop" id="orderModal">
+    <div class="modal">
+      <header>
+        <h2 id="orderTitle">Оформление заказа</h2>
+        <button class="x" data-close>&times;</button>
+      </header>
+      <div class="content">
+        <div id="orderSummary"></div>
+
+        <label>Вариант филамента</label>
+        <select id="variantSelect"></select>
+
+        <div class="row">
+          <div>
+            <label>Количество</label>
+            <input type="number" id="qty" value="1" min="1" />
+          </div>
+          <div>
+            <label>Итого</label>
+            <input type="text" id="totalPreview" readonly />
+          </div>
+        </div>
+
+        <label>Ваше имя *</label>
+        <input type="text" id="custName" placeholder="Как к вам обращаться" />
+
+        <div class="row">
+          <div>
+            <label>Телефон</label>
+            <input type="text" id="custPhone" placeholder="+7 ..." />
+          </div>
+          <div>
+            <label>Адрес / способ выдачи</label>
+            <input type="text" id="custAddress" placeholder="Куда доставить или где забрать" />
+          </div>
+        </div>
+
+        <label>Сообщение продавцу (необязательно)</label>
+        <textarea id="custMessage" placeholder="Уточнения по заказу, пожелания…"></textarea>
+
+        <div class="hint">💵 Оплата при получении. После оформления откроется чат с продавцом — сохраните ссылку на заказ.</div>
+        <div class="msg-error" id="orderError"></div>
+      </div>
+      <div class="actions">
+        <button class="btn ghost" data-close>Отмена</button>
+        <button class="btn primary" id="submitOrder">Оформить заказ</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Модалка входа / регистрации -->
+  <div class="modal-backdrop" id="authModal">
+    <div class="modal" style="max-width: 420px;">
+      <header>
+        <h2 id="authTitle">Вход в аккаунт</h2>
+        <button class="x" data-auth-close>&times;</button>
+      </header>
+      <div class="content">
+        <div class="tabs">
+          <div class="tab active" data-auth-tab="login">Вход</div>
+          <div class="tab" data-auth-tab="register">Регистрация</div>
+        </div>
+
+        <label>Юзернейм</label>
+        <input type="text" id="authUsername" placeholder="например, alex_3d" autocomplete="username" />
+
+        <div id="regExtra" style="display:none;">
+          <label>Отображаемое имя (необязательно)</label>
+          <input type="text" id="authDisplay" placeholder="Как показывать вас продавцу" />
+          <label>Телефон (необязательно)</label>
+          <input type="text" id="authPhone" placeholder="+7 ..." />
+        </div>
+
+        <label>Пароль</label>
+        <input type="password" id="authPassword" placeholder="Минимум 4 символа" autocomplete="current-password" />
+
+        <div class="hint">Аккаунт нужен только для оформления заказов и чата. Email не требуется.</div>
+        <div class="msg-error" id="authError"></div>
+      </div>
+      <div class="actions">
+        <button class="btn ghost" data-auth-close>Отмена</button>
+        <button class="btn primary" id="authSubmit">Войти</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="/js/auth.js"></script>
+  <script src="/js/store.js"></script>
+</body>
+</html>

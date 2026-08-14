@@ -1,0 +1,19 @@
+{
+  "name": "3d-store",
+  "version": "1.0.0",
+  "description": "Магазин 3D-моделей, напечатанных на 3D-принтере. Оплата при получении, чат между владельцем и клиентом по каждому заказу.",
+  "main": "src/server.js",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js"
+  },
+  "license": "AGPL-3.0",
+  "dependencies": {
+    "bcryptjs": "^2.4.3",
+    "better-sqlite3": "^11.3.0",
+    "cookie-parser": "^1.4.6",
+    "express": "^4.19.2",
+    "multer": "^2.0.0"
+  }
+}
