@@ -86,7 +86,7 @@ async function loadProducts() {
 
 function renderAdminCard(p) {
   const img = p.image
-    ? `<img src="/uploads/${esc(p.image)}" alt="" />`
+    ? `<img src="/img/${esc(p.image)}" alt="" />`
     : '<div class="placeholder">🧊</div>';
   const chips = (p.variants || []).map((v) => `<span class="chip">${esc(v.name)}${v.extra_price ? ' +' + money(v.extra_price) : ''}</span>`).join('');
   return `
@@ -135,7 +135,7 @@ function openProduct(p) {
     $('pDesc').value = p.description || '';
     $('pPrice').value = p.price;
     $('pActive').value = String(p.is_active);
-    $('currentImage').innerHTML = p.image ? `Текущее фото: <a href="/uploads/${esc(p.image)}" target="_blank">открыть</a>. Загрузите новое, чтобы заменить.` : 'Фото не загружено.';
+    $('currentImage').innerHTML = p.image ? `Текущее фото: <a href="/img/${esc(p.image)}" target="_blank">открыть</a>. Загрузите новое, чтобы заменить.` : 'Фото не загружено.';
     (p.variants || []).forEach((v) => addVariantRow(v.name, v.extra_price));
     $('deleteProductBtn').style.display = '';
   } else {

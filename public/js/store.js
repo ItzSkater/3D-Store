@@ -37,7 +37,7 @@ async function loadCatalog() {
 
 function renderCard(p) {
   const img = p.image
-    ? `<img src="/uploads/${esc(p.image)}" alt="${esc(p.name)}" loading="lazy" />`
+    ? `<img src="/img/${esc(p.image)}" alt="${esc(p.name)}" loading="lazy" />`
     : '<div class="placeholder">🧊</div>';
   const chips = (p.variants || [])
     .slice(0, 4)

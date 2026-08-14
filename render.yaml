@@ -1,0 +1,26 @@
+# Blueprint для Render (https://render.com) — БЕСПЛАТНЫЙ план.
+# Данные хранятся не на диске сервера, а в облачной базе Turso,
+# поэтому на бесплатном тарифе ничего не теряется при перезапуске.
+#
+# Деплой: Dashboard → New → Blueprint → выбрать этот репозиторий.
+# Затем в настройках сервиса задать секреты (см. ниже, они помечены sync:false).
+services:
+  - type: web
+    name: 3d-store
+    runtime: node
+    plan: free
+    region: frankfurt
+    buildCommand: npm ci
+    startCommand: npm start
+    autoDeploy: true
+    envVars:
+      # Облачная база Turso (создать бесплатно на app.turso.tech, без карты).
+      - key: DATABASE_URL
+        sync: false        # напр. libsql://имя-базы-логин.turso.io
+      - key: DATABASE_AUTH_TOKEN
+        sync: false        # токен доступа к базе Turso
+      # Telegram-уведомления
+      - key: TELEGRAM_CHAT_ID
+        value: "8763963310"
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false        # токен бота от @BotFather

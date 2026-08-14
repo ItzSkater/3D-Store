@@ -1,43 +1,39 @@
 'use strict';
 
 // Уведомления владельцу через Telegram-бота.
-// Настройки берутся из таблицы settings (их можно задать в админке),
+// Настройки берутся из таблицы settings (задаются в админке),
 // с запасным вариантом из переменных окружения.
 
 const db = require('./db');
 
-function getSetting(key, envName) {
-  const row = db.prepare('SELECT value FROM settings WHERE key = ?').get(key);
+async function getSetting(key, envName) {
+  const row = await db.get('SELECT value FROM settings WHERE key = ?', [key]);
   if (row && row.value) return row.value;
   return envName && process.env[envName] ? process.env[envName] : '';
 }
 
-function telegramConfig() {
-  return {
-    token: getSetting('telegram_bot_token', 'TELEGRAM_BOT_TOKEN'),
-    chatId: getSetting('telegram_chat_id', 'TELEGRAM_CHAT_ID'),
-  };
+async function telegramConfig() {
+  const [token, chatId] = await Promise.all([
+    getSetting('telegram_bot_token', 'TELEGRAM_BOT_TOKEN'),
+    getSetting('telegram_chat_id', 'TELEGRAM_CHAT_ID'),
+  ]);
+  return { token, chatId };
 }
 
-function isConfigured() {
-  const { token, chatId } = telegramConfig();
+async function isConfigured() {
+  const { token, chatId } = await telegramConfig();
   return Boolean(token && chatId);
 }
 
 // Отправка сообщения в Telegram. Возвращает {ok, error?}.
 async function sendTelegram(text) {
-  const { token, chatId } = telegramConfig();
+  const { token, chatId } = await telegramConfig();
   if (!token || !chatId) return { ok: false, error: 'Telegram не настроен' };
   try {
     const res = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        chat_id: chatId,
-        text,
-        parse_mode: 'HTML',
-        disable_web_page_preview: true,
-      }),
+      body: JSON.stringify({ chat_id: chatId, text, parse_mode: 'HTML', disable_web_page_preview: true }),
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok || !data.ok) {
@@ -52,14 +48,13 @@ async function sendTelegram(text) {
 function esc(s) {
   return String(s == null ? '' : s).replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
 }
-
 function money(n) {
   return new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 0 }).format(Math.round(n)) + ' ₽';
 }
 
-// Уведомление о новом заказе. Не блокирует ответ клиенту (fire-and-forget).
-function notifyNewOrder(order) {
-  if (!isConfigured()) return;
+// Уведомление о новом заказе (fire-and-forget).
+async function notifyNewOrder(order) {
+  if (!(await isConfigured())) return;
   const lines = [
     '📦 <b>Новый заказ #' + order.id + '</b>',
     '',
@@ -75,8 +70,8 @@ function notifyNewOrder(order) {
 }
 
 // Уведомление о новом сообщении от клиента.
-function notifyNewMessage(order, body) {
-  if (!isConfigured()) return;
+async function notifyNewMessage(order, body) {
+  if (!(await isConfigured())) return;
   const text =
     '💬 <b>Сообщение по заказу #' +
     order.id +
@@ -84,7 +79,7 @@ function notifyNewMessage(order, body) {
     esc(order.customer_name) +
     (order.username ? ' (@' + esc(order.username) + ')' : '') +
     ':\n\n«' +
-    esc(body.slice(0, 500)) +
+    esc(String(body).slice(0, 500)) +
     '»';
   sendTelegram(text).catch(() => {});
 }
