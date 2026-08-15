@@ -85,7 +85,6 @@ function openOrder(product) {
   document.getElementById('qty').value = 1;
   document.getElementById('custName').value = acc ? acc.display_name || acc.username : '';
   document.getElementById('custPhone').value = acc && acc.phone ? acc.phone : '';
-  document.getElementById('custAddress').value = '';
   document.getElementById('custMessage').value = '';
   document.getElementById('orderError').textContent = '';
   updateTotal();
@@ -117,7 +116,6 @@ async function submitOrder() {
     quantity: parseInt(document.getElementById('qty').value, 10) || 1,
     customer_name: name,
     phone: document.getElementById('custPhone').value.trim(),
-    address: document.getElementById('custAddress').value.trim(),
     message: document.getElementById('custMessage').value.trim(),
   };
   btn.disabled = true;

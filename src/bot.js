@@ -165,11 +165,6 @@ async function askPhone(chatId, data) {
   return tg.sendMessage(chatId, 'Укажите телефон для связи.\n(или отправьте «-», чтобы пропустить)');
 }
 
-async function askAddress(chatId, data) {
-  await setState(chatId, 'address', data);
-  return tg.sendMessage(chatId, 'Куда доставить или где заберёте заказ?\n(или отправьте «-», чтобы уточнить позже)');
-}
-
 async function showConfirm(chatId, data) {
   const p = await db.get('SELECT * FROM products WHERE id = ?', [data.product_id]);
   const v = data.variant_id ? await db.get('SELECT * FROM variants WHERE id = ?', [data.variant_id]) : null;
@@ -399,11 +394,6 @@ async function handleText(chatId, text, from, isOwner) {
 
   if (state === 'phone') {
     data.phone = trimmed === '-' ? '' : trimmed.slice(0, 50);
-    return askAddress(chatId, data);
-  }
-
-  if (state === 'address') {
-    data.address = trimmed === '-' ? '' : trimmed.slice(0, 300);
     return showConfirm(chatId, data);
   }
 
