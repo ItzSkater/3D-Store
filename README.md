@@ -100,14 +100,25 @@ firewalld и SELinux. В конце покажет адрес сайта и сг
 
 ### HTTPS и домен
 
-Направьте A-запись домена на IP сервера, затем:
+Подойдёт любой домен, в том числе бесплатный **DuckDNS**. Сначала убедитесь,
+что домен указывает на IP сервера (в панели DuckDNS — поле «current ip»),
+затем одной командой:
 
 ```bash
-dnf install -y epel-release && dnf install -y certbot python3-certbot-nginx
-certbot --nginx -d ваш-домен.ru
+bash /opt/3d-store/deploy/setup-https.sh ваш-домен.duckdns.org
 ```
 
-Сертификат бесплатный и обновляется автоматически.
+Скрипт проверит домен, установит certbot, пропишет домен в nginx, получит
+бесплатный сертификат Let's Encrypt, включит перенаправление HTTP → HTTPS и
+автопродление.
+
+Вторым аргументом можно указать почту для напоминаний об истечении:
+
+```bash
+bash /opt/3d-store/deploy/setup-https.sh ваш-домен.duckdns.org почта@example.com
+```
+
+Проверить сертификаты: `certbot certificates`
 
 ### Резервная копия
 
