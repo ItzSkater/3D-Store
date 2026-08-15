@@ -47,6 +47,21 @@ async function deleteImage(imageId) {
 
 // ------- Первичная настройка: пароль владельца -------
 async function ensureOwnerPassword() {
+  // Аварийный сброс пароля: задайте переменную окружения RESET_OWNER_PASSWORD
+  // с новым паролем — при запуске он перезапишет текущий. После входа
+  // обязательно удалите эту переменную (иначе пароль будет сбрасываться
+  // при каждом перезапуске).
+  const reset = process.env.RESET_OWNER_PASSWORD;
+  if (reset && String(reset).trim()) {
+    const hash = bcrypt.hashSync(String(reset).trim(), 10);
+    await db.run(
+      'INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value',
+      ['owner_password_hash', hash]
+    );
+    console.log('[3D-Store] Пароль владельца СБРОШЕН через RESET_OWNER_PASSWORD. Удалите эту переменную окружения.');
+    return;
+  }
+
   const existing = await db.get('SELECT value FROM settings WHERE key = ?', ['owner_password_hash']);
   if (!existing) {
     const initial = process.env.OWNER_PASSWORD || 'admin';
