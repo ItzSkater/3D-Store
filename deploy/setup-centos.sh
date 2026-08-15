@@ -41,6 +41,9 @@ id -u "$APP_USER" >/dev/null 2>&1 || useradd --system --shell /sbin/nologin --ho
 mkdir -p "$DATA_DIR/uploads"
 
 log "4/8 Код приложения"
+# Каталог принадлежит пользователю webstore, а git работает от root —
+# без этого при повторном запуске git ругается на "dubious ownership".
+git config --global --add safe.directory "$APP_DIR" 2>/dev/null || true
 if [[ -d "$APP_DIR/.git" ]]; then
   git -C "$APP_DIR" fetch origin "$BRANCH" --quiet
   git -C "$APP_DIR" reset --hard "origin/$BRANCH" --quiet

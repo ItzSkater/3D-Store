@@ -15,6 +15,9 @@ if [[ $EUID -ne 0 ]]; then
 fi
 
 echo "==> Забираю обновления из GitHub"
+# Каталог принадлежит пользователю webstore, а git запущен от root —
+# без этого git отказывается работать ("dubious ownership").
+git config --global --add safe.directory "$APP_DIR" 2>/dev/null || true
 git -C "$APP_DIR" fetch origin "$BRANCH" --quiet
 git -C "$APP_DIR" reset --hard "origin/$BRANCH" --quiet
 
