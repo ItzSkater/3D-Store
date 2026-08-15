@@ -1,23 +1,23 @@
 'use strict';
 
-// Уведомления владельцу через Telegram-бота.
-// Настройки берутся из таблицы settings (задаются в админке),
-// с запасным вариантом из переменных окружения.
+// Уведомления: владельцу — о заказах и сообщениях клиентов,
+// клиентам — об ответах продавца и смене статуса заказа.
 
 const db = require('./db');
+const tg = require('./tg');
+const { esc, money } = tg;
 
-async function getSetting(key, envName) {
-  const row = await db.get('SELECT value FROM settings WHERE key = ?', [key]);
-  if (row && row.value) return row.value;
-  return envName && process.env[envName] ? process.env[envName] : '';
-}
+const STATUS = {
+  new: 'Новый',
+  confirmed: 'Подтверждён',
+  shipped: 'Отправлен',
+  done: 'Выполнен',
+  cancelled: 'Отменён',
+};
 
 async function telegramConfig() {
-  const [token, chatId] = await Promise.all([
-    getSetting('telegram_bot_token', 'TELEGRAM_BOT_TOKEN'),
-    getSetting('telegram_chat_id', 'TELEGRAM_CHAT_ID'),
-  ]);
-  return { token, chatId };
+  const { token, ownerChatId } = await tg.config();
+  return { token, chatId: ownerChatId };
 }
 
 async function isConfigured() {
@@ -25,34 +25,15 @@ async function isConfigured() {
   return Boolean(token && chatId);
 }
 
-// Отправка сообщения в Telegram. Возвращает {ok, error?}.
+// Отправка владельцу. Возвращает {ok, error?}.
 async function sendTelegram(text) {
   const { token, chatId } = await telegramConfig();
   if (!token || !chatId) return { ok: false, error: 'Telegram не настроен' };
-  try {
-    const res = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ chat_id: chatId, text, parse_mode: 'HTML', disable_web_page_preview: true }),
-    });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok || !data.ok) {
-      return { ok: false, error: (data && data.description) || `HTTP ${res.status}` };
-    }
-    return { ok: true };
-  } catch (e) {
-    return { ok: false, error: e.message };
-  }
+  const res = await tg.sendMessage(chatId, text);
+  return res.ok ? { ok: true } : { ok: false, error: res.error };
 }
 
-function esc(s) {
-  return String(s == null ? '' : s).replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
-}
-function money(n) {
-  return new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 0 }).format(Math.round(n)) + ' ₽';
-}
-
-// Уведомление о новом заказе (fire-and-forget).
+// ---------- владельцу ----------
 async function notifyNewOrder(order) {
   if (!(await isConfigured())) return;
   const lines = [
@@ -66,10 +47,15 @@ async function notifyNewOrder(order) {
   ];
   if (order.phone) lines.push('📞 ' + esc(order.phone));
   if (order.address) lines.push('📍 ' + esc(order.address));
-  sendTelegram(lines.join('\n')).catch(() => {});
+
+  const { chatId } = await telegramConfig();
+  await tg.sendMessage(
+    chatId,
+    lines.join('\n'),
+    tg.inlineKeyboard([[{ text: '📋 Открыть заказ', callback_data: 'o:' + order.id }]])
+  );
 }
 
-// Уведомление о новом сообщении от клиента.
 async function notifyNewMessage(order, body) {
   if (!(await isConfigured())) return;
   const text =
@@ -81,7 +67,52 @@ async function notifyNewMessage(order, body) {
     ':\n\n«' +
     esc(String(body).slice(0, 500)) +
     '»';
-  sendTelegram(text).catch(() => {});
+  const { chatId } = await telegramConfig();
+  await tg.sendMessage(
+    chatId,
+    text,
+    tg.inlineKeyboard([[{ text: '✍️ Ответить', callback_data: 'msg:' + order.id }]])
+  );
 }
 
-module.exports = { sendTelegram, notifyNewOrder, notifyNewMessage, isConfigured, telegramConfig };
+// ---------- клиенту ----------
+async function customerChatId(order) {
+  if (!order || !order.user_id) return '';
+  const u = await db.get('SELECT telegram_chat_id FROM users WHERE id = ?', [order.user_id]);
+  return u && u.telegram_chat_id ? String(u.telegram_chat_id) : '';
+}
+
+// Ответ продавца в чате заказа
+async function notifyCustomerMessage(order, body) {
+  const chatId = await customerChatId(order);
+  if (!chatId) return;
+  await tg.sendMessage(
+    chatId,
+    `💬 <b>Ответ продавца по заказу #${order.id}</b>\n\n«${esc(String(body).slice(0, 800))}»`,
+    tg.inlineKeyboard([[{ text: '✍️ Ответить', callback_data: 'msg:' + order.id }]])
+  );
+}
+
+// Смена статуса заказа
+async function notifyCustomerStatus(order, status) {
+  const chatId = await customerChatId(order);
+  if (!chatId) return;
+  const emoji = { confirmed: '✅', shipped: '🚚', done: '🏁', cancelled: '❌', new: '🆕' }[status] || 'ℹ️';
+  await tg.sendMessage(
+    chatId,
+    `${emoji} <b>Заказ #${order.id}</b>\n` +
+      `<b>${esc(order.product_name)}</b>\n\n` +
+      `Новый статус: <b>${STATUS[status] || status}</b>`,
+    tg.inlineKeyboard([[{ text: '📦 Открыть заказ', callback_data: 'o:' + order.id }]])
+  );
+}
+
+module.exports = {
+  sendTelegram,
+  notifyNewOrder,
+  notifyNewMessage,
+  notifyCustomerMessage,
+  notifyCustomerStatus,
+  isConfigured,
+  telegramConfig,
+};

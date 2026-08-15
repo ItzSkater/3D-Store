@@ -23,7 +23,9 @@
 ```
 src/server.js   — Express, всё API; async-обработчики обёрнуты в wrap()
 src/db.js       — подключение к libSQL, схема (init() при старте)
-src/notify.js   — уведомления владельцу в Telegram
+src/tg.js       — низкоуровневый Telegram Bot API (sendMessage/sendPhoto/…)
+src/bot.js      — бот: магазин для клиентов + команды владельца (long polling)
+src/notify.js   — уведомления владельцу и клиентам в Telegram
 public/         — index.html (витрина), admin.html (кабинет), order.html
                   (мои заказы + чат), js/{store,admin,order,auth}.js
 deploy/         — установка на VPS (CentOS/RHEL 9): setup-centos.sh,
@@ -36,7 +38,22 @@ deploy/         — установка на VPS (CentOS/RHEL 9): setup-centos.sh
   `OWNER_PASSWORD` (по умолчанию `admin`), меняется в кабинете.
   Забытый пароль сбрасывается переменной `RESET_OWNER_PASSWORD`.
 - **Клиенты** — аккаунты «юзернейм + пароль», **без email**. Регистрация
-  обязательна для оформления заказа.
+  обязательна для оформления заказа. Клиентам из Telegram аккаунт создаётся
+  автоматически (`users.telegram_chat_id`).
+
+## Telegram-бот
+
+Один бот на всех (`src/bot.js`, long polling — вебхук и публичный URL не нужны).
+Владелец определяется сравнением chat id с `TELEGRAM_CHAT_ID`; всё остальное —
+клиенты. Диалог оформления заказа — конечный автомат, состояние в таблице
+`tg_state` (`qty → name → phone → address → confirm`).
+
+Команды владельца: `/menu`, `/orders`, `/setpass <новый>` — смена пароля
+админки **без старого пароля** (доверенный канал = чат владельца), при этом
+сбрасываются все сессии в `sessions`.
+
+Проверять права нужно по chat id на каждом действии: смена статуса и
+`/setpass` доступны только владельцу.
 
 ## Переменные окружения
 

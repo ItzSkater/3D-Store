@@ -9,6 +9,7 @@ const multer = require('multer');
 
 const db = require('./db');
 const notify = require('./notify');
+const bot = require('./bot');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -466,6 +467,7 @@ app.put('/api/orders/:id/status', requireOwner, wrap(async (req, res) => {
   const o = await db.get('SELECT * FROM orders WHERE id = ?', [req.params.id]);
   if (!o) return res.status(404).json({ error: 'Заказ не найден' });
   await db.run('UPDATE orders SET status = ? WHERE id = ?', [status, o.id]);
+  notify.notifyCustomerStatus({ ...o, status }, status).catch(() => {});
   res.json({ ok: true, status });
 }));
 
@@ -503,6 +505,7 @@ app.post('/api/chat/order/:id', requireOwner, wrap(async (req, res) => {
   const body = String(req.body.body || '').trim();
   if (!body) return res.status(400).json({ error: 'Пустое сообщение' });
   await db.run('INSERT INTO messages (order_id, sender, body) VALUES (?, ?, ?)', [o.id, 'owner', body]);
+  notify.notifyCustomerMessage(o, body).catch(() => {});
   res.json({ messages: await getMessages(o.id) });
 }));
 
@@ -521,6 +524,9 @@ async function main() {
   await db.init();
   await ensureOwnerPassword();
   app.listen(PORT, () => console.log(`[3D-Store] Сервер запущен: http://localhost:${PORT}`));
+  // Telegram-бот (магазин для клиентов + команды владельца).
+  // Запускается, только если задан токен; сам дождётся его, если добавят позже.
+  bot.startBot();
 }
 
 main().catch((e) => {

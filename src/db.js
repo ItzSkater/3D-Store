@@ -100,15 +100,36 @@ const SCHEMA = [
      user_id INTEGER NOT NULL,
      created_at TEXT NOT NULL DEFAULT (datetime('now'))
    )`,
+  // Состояние диалога с ботом (пошаговое оформление заказа)
+  `CREATE TABLE IF NOT EXISTS tg_state (
+     chat_id TEXT PRIMARY KEY,
+     state TEXT NOT NULL DEFAULT '',
+     data TEXT NOT NULL DEFAULT '{}',
+     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+   )`,
   `CREATE INDEX IF NOT EXISTS idx_variants_product ON variants(product_id)`,
   `CREATE INDEX IF NOT EXISTS idx_messages_order ON messages(order_id)`,
   `CREATE INDEX IF NOT EXISTS idx_orders_created ON orders(created_at)`,
 ];
 
+// Добавляет колонку, если её ещё нет (для баз, созданных ранней версией).
+async function addColumnIfMissing(table, column, definition) {
+  const res = await client.execute(`PRAGMA table_info(${table})`);
+  const exists = res.rows.some((r) => r.name === column);
+  if (!exists) {
+    await client.execute(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+  }
+}
+
 async function init() {
   for (const stmt of SCHEMA) {
     await client.execute(stmt);
   }
+  // Привязка аккаунта клиента к Telegram
+  await addColumnIfMissing('users', 'telegram_chat_id', "TEXT DEFAULT ''");
+  await client.execute(
+    'CREATE INDEX IF NOT EXISTS idx_users_tg ON users(telegram_chat_id)'
+  );
 }
 
 module.exports = { client, run, get, all, init };
