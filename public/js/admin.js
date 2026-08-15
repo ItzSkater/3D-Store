@@ -15,6 +15,28 @@ function fmtDate(s) {
 }
 const STATUS = { new: 'Новый', confirmed: 'Подтверждён', shipped: 'Отправлен', done: 'Выполнен', cancelled: 'Отменён' };
 
+// Образец цвета филамента: {"c":["#hex",...],"m":bool}
+function swBg(spec) {
+  try {
+    const o = typeof spec === 'string' ? JSON.parse(spec) : spec;
+    const colors = (o && Array.isArray(o.c) ? o.c : []).filter((x) => /^#[0-9a-fA-F]{6}$/.test(x));
+    if (!colors.length) return '';
+    const base =
+      colors.length > 1
+        ? `linear-gradient(135deg, ${colors.join(', ')})`
+        : `linear-gradient(135deg, ${colors[0]}, ${colors[0]})`;
+    return o.m
+      ? `linear-gradient(115deg, rgba(255,255,255,0) 25%, rgba(255,255,255,.8) 50%, rgba(255,255,255,0) 72%), ${base}`
+      : base;
+  } catch {
+    return '';
+  }
+}
+function swHtml(spec, cls) {
+  const bg = swBg(spec);
+  return bg ? `<i class="sw${cls ? ' ' + cls : ''}" style="background:${bg}"></i>` : '';
+}
+
 const $ = (id) => document.getElementById(id);
 let chatOrderId = null;
 let chatPoll = null;
@@ -88,7 +110,7 @@ function renderAdminCard(p) {
   const img = p.image
     ? `<img src="/img/${esc(p.image)}" alt="" />`
     : '<div class="placeholder">🧊</div>';
-  const chips = (p.variants || []).map((v) => `<span class="chip">${esc(v.name)}${v.extra_price ? ' +' + money(v.extra_price) : ''}</span>`).join('');
+  const chips = (p.variants || []).map((v) => `<span class="chip">${swHtml(v.color)}${esc(v.name)}${v.extra_price ? ' +' + money(v.extra_price) : ''}</span>`).join('');
   return `
     <div class="card">
       <div class="thumb">${img}</div>
@@ -104,22 +126,78 @@ function renderAdminCard(p) {
 
 // ---------- Модалка модели ----------
 const productModal = $('productModal');
-function addVariantRow(name = '', extra = '') {
+
+function parseColorSpec(spec) {
+  try {
+    const o = typeof spec === 'string' ? JSON.parse(spec) : spec;
+    const colors = (o && Array.isArray(o.c) ? o.c : []).filter((x) => /^#[0-9a-fA-F]{6}$/.test(x));
+    return { colors: colors.slice(0, 4), metal: !!(o && o.m) };
+  } catch {
+    return { colors: [], metal: false };
+  }
+}
+
+function addVariantRow(name = '', extra = '', color = '') {
+  const state = parseColorSpec(color);
   const row = document.createElement('div');
   row.className = 'variant-row';
   row.innerHTML = `
-    <input type="text" placeholder="PLA Красный" value="${esc(name)}" />
-    <input type="number" placeholder="доплата ₽" min="0" step="1" value="${extra === '' ? '' : esc(extra)}" />
-    <button class="btn danger small" type="button">✕</button>`;
-  row.querySelector('button').addEventListener('click', () => row.remove());
+    <div class="variant-main">
+      <input type="text" placeholder="PLA Красный" value="${esc(name)}" data-vname />
+      <input type="number" placeholder="доплата ₽" min="0" step="1" value="${extra === '' ? '' : esc(extra)}" data-vprice />
+      <button class="btn danger small" type="button" data-vdel>✕</button>
+    </div>
+    <div class="variant-colors">
+      <i class="sw sw-lg" data-vpreview></i>
+      <span class="color-dots" data-vdots></span>
+      <button type="button" class="btn ghost small" data-vaddcolor>+ цвет</button>
+      <label class="metal-toggle"><input type="checkbox" data-vmetal ${state.metal ? 'checked' : ''} /> ✨ Металлик</label>
+    </div>`;
+
+  const dots = row.querySelector('[data-vdots]');
+  const preview = row.querySelector('[data-vpreview]');
+  const metal = row.querySelector('[data-vmetal]');
+
+  function refresh() {
+    const colors = Array.from(dots.querySelectorAll('input[type="color"]')).map((i) => i.value);
+    const bg = swBg({ c: colors, m: metal.checked });
+    preview.style.background = bg || 'transparent';
+    preview.style.display = colors.length ? '' : 'none';
+    row.querySelector('[data-vaddcolor]').style.display = colors.length >= 4 ? 'none' : '';
+  }
+
+  function addDot(hex) {
+    const dot = document.createElement('span');
+    dot.className = 'cdot';
+    dot.innerHTML = `<input type="color" value="${/^#[0-9a-fA-F]{6}$/.test(hex) ? hex : '#4353ff'}" /><button type="button" class="cdel" title="Убрать цвет">×</button>`;
+    dot.querySelector('input').addEventListener('input', refresh);
+    dot.querySelector('.cdel').addEventListener('click', () => {
+      dot.remove();
+      refresh();
+    });
+    dots.appendChild(dot);
+    refresh();
+  }
+
+  state.colors.forEach(addDot);
+  refresh();
+
+  row.querySelector('[data-vaddcolor]').addEventListener('click', () => addDot('#4353ff'));
+  metal.addEventListener('change', refresh);
+  row.querySelector('[data-vdel]').addEventListener('click', () => row.remove());
   $('variantsBox').appendChild(row);
 }
 
 function collectVariants() {
   return Array.from($('variantsBox').querySelectorAll('.variant-row'))
     .map((r) => {
-      const inputs = r.querySelectorAll('input');
-      return { name: inputs[0].value.trim(), extra_price: Number(inputs[1].value) || 0 };
+      const colors = Array.from(r.querySelectorAll('[data-vdots] input[type="color"]')).map((i) => i.value);
+      const metal = r.querySelector('[data-vmetal]').checked;
+      return {
+        name: r.querySelector('[data-vname]').value.trim(),
+        extra_price: Number(r.querySelector('[data-vprice]').value) || 0,
+        color: colors.length ? { c: colors, m: metal } : '',
+      };
     })
     .filter((v) => v.name);
 }
@@ -136,7 +214,7 @@ function openProduct(p) {
     $('pPrice').value = p.price;
     $('pActive').value = String(p.is_active);
     $('currentImage').innerHTML = p.image ? `Текущее фото: <a href="/img/${esc(p.image)}" target="_blank">открыть</a>. Загрузите новое, чтобы заменить.` : 'Фото не загружено.';
-    (p.variants || []).forEach((v) => addVariantRow(v.name, v.extra_price));
+    (p.variants || []).forEach((v) => addVariantRow(v.name, v.extra_price, v.color));
     $('deleteProductBtn').style.display = '';
   } else {
     $('productModalTitle').textContent = 'Новая модель';
@@ -210,7 +288,7 @@ function renderOrderRow(o) {
   return `
     <div class="order-item">
       <div class="info">
-        <h4>#${o.id} · ${esc(o.product_name)} ${o.variant_name ? '· ' + esc(o.variant_name) : ''}</h4>
+        <h4>#${o.id} · ${esc(o.product_name)} ${o.variant_name ? '· ' + swHtml(o.variant_color) + esc(o.variant_name) : ''}</h4>
         <div class="sub">${esc(o.customer_name)}${o.username ? ' (@' + esc(o.username) + ')' : ''}${o.phone ? ' · ' + esc(o.phone) : ''} · ${o.quantity} шт · ${money(o.total)}</div>
         <div class="sub">${o.address ? 'Выдача: ' + esc(o.address) + ' · ' : ''}${fmtDate(o.created_at)}</div>
       </div>
@@ -228,7 +306,7 @@ function openOrder(o) {
   $('orderModalTitle').textContent = `Заказ #${o.id}`;
   $('orderDetails').innerHTML = `
     <div class="notice">
-      <b>${esc(o.product_name)}</b> ${o.variant_name ? '· ' + esc(o.variant_name) : ''}<br/>
+      <b>${esc(o.product_name)}</b> ${o.variant_name ? '· ' + swHtml(o.variant_color) + esc(o.variant_name) : ''}<br/>
       Клиент: ${esc(o.customer_name)}${o.username ? ' (@' + esc(o.username) + ')' : ''}<br/>
       ${o.phone ? 'Телефон: ' + esc(o.phone) + '<br/>' : ''}
       ${o.address ? 'Выдача: ' + esc(o.address) + '<br/>' : ''}

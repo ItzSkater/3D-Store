@@ -191,7 +191,10 @@ app.post('/api/user-logout', wrap(async (req, res) => {
 }));
 
 app.get('/api/my/orders', requireUser, wrap(async (req, res) => {
-  const rows = await db.all('SELECT * FROM orders WHERE user_id = ? ORDER BY created_at DESC', [req.user.id]);
+  const rows = await db.all(
+    'SELECT o.*, v.color AS variant_color FROM orders o LEFT JOIN variants v ON v.id = o.variant_id WHERE o.user_id = ? ORDER BY o.created_at DESC',
+    [req.user.id]
+  );
   res.json(rows.map((o) => ({ ...serializeOrder(o), token: o.token })));
 }));
 
@@ -272,10 +275,31 @@ app.post('/api/settings/test-telegram', requireOwner, wrap(async (req, res) => {
 // --- Модели ---
 async function attachVariants(product) {
   const variants = await db.all(
-    'SELECT id, name, extra_price FROM variants WHERE product_id = ? ORDER BY id',
+    'SELECT id, name, extra_price, color FROM variants WHERE product_id = ? ORDER BY id',
     [product.id]
   );
   return { ...product, variants };
+}
+
+// Нормализация цвета варианта: {"c":["#hex",...],"m":bool} или пусто.
+// До 4 цветов (2+ = градиент), m — металлик.
+function normColor(raw) {
+  let obj = raw;
+  if (typeof raw === 'string') {
+    if (!raw.trim()) return '';
+    try {
+      obj = JSON.parse(raw);
+    } catch {
+      return '';
+    }
+  }
+  if (!obj || typeof obj !== 'object') return '';
+  const colors = (Array.isArray(obj.c) ? obj.c : [])
+    .map((x) => String(x).trim())
+    .filter((x) => /^#[0-9a-fA-F]{6}$/.test(x))
+    .slice(0, 4);
+  if (!colors.length) return '';
+  return JSON.stringify({ c: colors, m: !!obj.m });
 }
 
 app.get('/api/products', wrap(async (req, res) => {
@@ -303,7 +327,11 @@ function parseVariants(raw) {
   }
   if (!Array.isArray(list)) list = [];
   return list
-    .map((v) => ({ name: String(v.name || '').trim(), extra_price: Number(v.extra_price) || 0 }))
+    .map((v) => ({
+      name: String(v.name || '').trim(),
+      extra_price: Number(v.extra_price) || 0,
+      color: normColor(v.color),
+    }))
     .filter((v) => v.name);
 }
 
@@ -322,10 +350,11 @@ app.post('/api/products', requireOwner, upload.single('image'), wrap(async (req,
   );
   const productId = Number(info.lastInsertRowid);
   for (const v of variants) {
-    await db.run('INSERT INTO variants (product_id, name, extra_price) VALUES (?, ?, ?)', [
+    await db.run('INSERT INTO variants (product_id, name, extra_price, color) VALUES (?, ?, ?, ?)', [
       productId,
       v.name,
       v.extra_price,
+      v.color,
     ]);
   }
   res.json(await attachVariants(await db.get('SELECT * FROM products WHERE id = ?', [productId])));
@@ -359,10 +388,11 @@ app.put('/api/products/:id', requireOwner, upload.single('image'), wrap(async (r
     const variants = parseVariants(req.body.variants);
     await db.run('DELETE FROM variants WHERE product_id = ?', [p.id]);
     for (const v of variants) {
-      await db.run('INSERT INTO variants (product_id, name, extra_price) VALUES (?, ?, ?)', [
+      await db.run('INSERT INTO variants (product_id, name, extra_price, color) VALUES (?, ?, ?, ?)', [
         p.id,
         v.name,
         v.extra_price,
+        v.color,
       ]);
     }
   }
@@ -384,6 +414,7 @@ function serializeOrder(o) {
     id: o.id,
     product_name: o.product_name,
     variant_name: o.variant_name,
+    variant_color: o.variant_color || null,
     unit_price: o.unit_price,
     quantity: o.quantity,
     total: o.total,
@@ -444,13 +475,18 @@ app.post('/api/orders', requireUser, wrap(async (req, res) => {
 }));
 
 app.get('/api/orders/by-token/:token', wrap(async (req, res) => {
-  const o = await db.get('SELECT * FROM orders WHERE token = ?', [req.params.token]);
+  const o = await db.get(
+    'SELECT o.*, v.color AS variant_color FROM orders o LEFT JOIN variants v ON v.id = o.variant_id WHERE o.token = ?',
+    [req.params.token]
+  );
   if (!o) return res.status(404).json({ error: 'Заказ не найден' });
   res.json(serializeOrder(o));
 }));
 
 app.get('/api/orders', requireOwner, wrap(async (req, res) => {
-  const rows = await db.all('SELECT * FROM orders ORDER BY created_at DESC');
+  const rows = await db.all(
+    'SELECT o.*, v.color AS variant_color FROM orders o LEFT JOIN variants v ON v.id = o.variant_id ORDER BY o.created_at DESC'
+  );
   const result = [];
   for (const o of rows) {
     const cnt = await db.get("SELECT COUNT(*) AS c FROM messages WHERE order_id = ? AND sender = 'customer'", [o.id]);

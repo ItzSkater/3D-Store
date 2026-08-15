@@ -17,6 +17,29 @@ function fmtDate(s) {
   if (isNaN(d)) return s;
   return d.toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
 }
+
+// Образец цвета филамента: {"c":["#hex",...],"m":bool}
+function swBg(spec) {
+  try {
+    const o = typeof spec === 'string' ? JSON.parse(spec) : spec;
+    const colors = (o && Array.isArray(o.c) ? o.c : []).filter((x) => /^#[0-9a-fA-F]{6}$/.test(x));
+    if (!colors.length) return '';
+    const base =
+      colors.length > 1
+        ? `linear-gradient(135deg, ${colors.join(', ')})`
+        : `linear-gradient(135deg, ${colors[0]}, ${colors[0]})`;
+    return o.m
+      ? `linear-gradient(115deg, rgba(255,255,255,0) 25%, rgba(255,255,255,.8) 50%, rgba(255,255,255,0) 72%), ${base}`
+      : base;
+  } catch {
+    return '';
+  }
+}
+function swHtml(spec, cls) {
+  const bg = swBg(spec);
+  return bg ? `<i class="sw${cls ? ' ' + cls : ''}" style="background:${bg}"></i>` : '';
+}
+
 const STATUS = {
   new: 'Новый', confirmed: 'Подтверждён', shipped: 'Отправлен', done: 'Выполнен', cancelled: 'Отменён',
 };
@@ -63,7 +86,7 @@ async function listMyOrders() {
         (o) => `
       <div class="order-item">
         <div class="info">
-          <h4>${esc(o.product_name)} ${o.variant_name ? '· ' + esc(o.variant_name) : ''}</h4>
+          <h4>${esc(o.product_name)} ${o.variant_name ? '· ' + swHtml(o.variant_color) + esc(o.variant_name) : ''}</h4>
           <div class="sub">${o.quantity} шт · ${money(o.total)} · оплата при получении · ${fmtDate(o.created_at)}</div>
         </div>
         <div class="right">
@@ -89,7 +112,7 @@ async function openOrderChat(token) {
     <a class="btn ghost small" href="/order" style="margin-bottom:14px;">← Все мои заказы</a>
     <div class="order-item" style="margin-bottom:16px;">
       <div class="info">
-        <h4>${esc(o.product_name)} ${o.variant_name ? '· ' + esc(o.variant_name) : ''}</h4>
+        <h4>${esc(o.product_name)} ${o.variant_name ? '· ' + swHtml(o.variant_color) + esc(o.variant_name) : ''}</h4>
         <div class="sub">${o.quantity} шт · Итого ${money(o.total)} · 💵 оплата при получении</div>
         ${o.address ? `<div class="sub">Выдача: ${esc(o.address)}</div>` : ''}
       </div>

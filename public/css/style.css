@@ -173,11 +173,43 @@ header.site .container {
 
 .chips { display: flex; flex-wrap: wrap; gap: 6px; }
 .chip {
+  display: inline-flex; align-items: center; gap: 6px;
   font-size: 11.5px; padding: 4px 11px; border-radius: 999px;
   background: var(--paper);
   border: 1px solid var(--ink);
   color: var(--ink); font-weight: 700;
 }
+
+/* ---------- Образцы цвета филамента ---------- */
+.sw {
+  display: inline-block; flex: none;
+  width: 14px; height: 14px; border-radius: 5px;
+  border: 1px solid var(--ink);
+  vertical-align: -2px;
+  background: var(--paper);
+}
+.sw.sw-lg { width: 28px; height: 28px; border-radius: 9px; }
+h4 .sw, .notice .sw { margin-right: 5px; }
+
+/* Выбор варианта в заказе — кнопки с образцом */
+.variant-options { display: flex; flex-direction: column; gap: 8px; }
+.variant-option {
+  display: flex; align-items: center; gap: 12px;
+  padding: 11px 14px;
+  background: var(--card);
+  border: var(--bw) solid var(--line);
+  border-radius: var(--radius-sm);
+  font-family: inherit; font-size: 14.5px; font-weight: 700; color: var(--ink);
+  cursor: pointer; text-align: left;
+  transition: box-shadow .12s ease, border-color .12s ease, transform .12s ease;
+}
+.variant-option:hover { transform: translate(-1px, -1px); box-shadow: 3px 3px 0 var(--ink); }
+.variant-option.selected {
+  border-color: var(--accent);
+  box-shadow: 3px 3px 0 var(--accent);
+  background: var(--accent-soft);
+}
+.variant-option .vprice { margin-left: auto; color: var(--muted); font-weight: 700; font-size: 13px; }
 .inactive-tag {
   font-size: 11px; color: var(--warn); background: var(--warn-soft);
   border: 1px solid var(--warn); border-radius: 999px; padding: 2px 9px;
@@ -264,9 +296,44 @@ select {
 .row > * { flex: 1; }
 .hint { font-size: 13px; color: var(--muted); margin-top: 10px; font-weight: 500; }
 
-.variant-row { display: flex; gap: 8px; margin-bottom: 8px; align-items: center; }
-.variant-row input:first-child { flex: 2; }
-.variant-row input:nth-child(2) { flex: 1; }
+/* Редактор варианта (админка): имя+цена и палитра цветов */
+.variant-row {
+  border: var(--bw) solid var(--line);
+  border-radius: var(--radius-sm);
+  padding: 10px 12px;
+  margin-bottom: 10px;
+  display: flex; flex-direction: column; gap: 9px;
+  background: var(--paper);
+}
+.variant-main { display: flex; gap: 8px; align-items: center; }
+.variant-main input[data-vname] { flex: 2; }
+.variant-main input[data-vprice] { flex: 1; }
+.variant-colors { display: flex; align-items: center; gap: 9px; flex-wrap: wrap; }
+.color-dots { display: inline-flex; gap: 7px; align-items: center; }
+.cdot { position: relative; display: inline-flex; }
+input[type="color"] {
+  width: 36px; height: 36px; padding: 3px;
+  border-radius: 10px; cursor: pointer;
+  box-shadow: none;
+}
+input[type="color"]::-webkit-color-swatch-wrapper { padding: 2px; }
+input[type="color"]::-webkit-color-swatch { border: none; border-radius: 6px; }
+.cdel {
+  position: absolute; top: -7px; right: -7px;
+  width: 17px; height: 17px;
+  border-radius: 50%;
+  border: 1px solid var(--ink);
+  background: var(--card); color: var(--ink);
+  font-size: 12px; line-height: 1; font-weight: 700;
+  cursor: pointer; display: grid; place-items: center; padding: 0;
+}
+.cdel:hover { background: var(--danger-soft); color: var(--danger); }
+.metal-toggle {
+  display: inline-flex; align-items: center; gap: 6px;
+  margin: 0; text-transform: none; letter-spacing: 0;
+  font-size: 13px; font-weight: 700; color: var(--ink); cursor: pointer;
+}
+.metal-toggle input { width: 16px; height: 16px; accent-color: var(--accent); box-shadow: none; }
 
 .msg-error { color: var(--danger); font-size: 13px; margin-top: 10px; min-height: 18px; font-weight: 700; }
 .msg-ok { color: var(--ok); font-size: 13px; margin-top: 10px; font-weight: 700; }

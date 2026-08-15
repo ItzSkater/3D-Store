@@ -127,6 +127,9 @@ async function init() {
   }
   // Привязка аккаунта клиента к Telegram
   await addColumnIfMissing('users', 'telegram_chat_id', "TEXT DEFAULT ''");
+  // Цвет варианта филамента: JSON {"c":["#hex",...],"m":true|false}
+  // (несколько цветов = градиент, m = металлик)
+  await addColumnIfMissing('variants', 'color', "TEXT DEFAULT ''");
   await client.execute(
     'CREATE INDEX IF NOT EXISTS idx_users_tg ON users(telegram_chat_id)'
   );

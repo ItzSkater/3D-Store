@@ -14,6 +14,29 @@ function esc(s) {
   );
 }
 
+// Фон для образца цвета филамента: {"c":["#hex",...],"m":bool}
+// несколько цветов = градиент, m = металлик (диагональный блик)
+function swBg(spec) {
+  try {
+    const o = typeof spec === 'string' ? JSON.parse(spec) : spec;
+    const colors = (o && Array.isArray(o.c) ? o.c : []).filter((x) => /^#[0-9a-fA-F]{6}$/.test(x));
+    if (!colors.length) return '';
+    const base =
+      colors.length > 1
+        ? `linear-gradient(135deg, ${colors.join(', ')})`
+        : `linear-gradient(135deg, ${colors[0]}, ${colors[0]})`;
+    return o.m
+      ? `linear-gradient(115deg, rgba(255,255,255,0) 25%, rgba(255,255,255,.8) 50%, rgba(255,255,255,0) 72%), ${base}`
+      : base;
+  } catch {
+    return '';
+  }
+}
+function swHtml(spec, cls) {
+  const bg = swBg(spec);
+  return bg ? `<i class="sw${cls ? ' ' + cls : ''}" style="background:${bg}"></i>` : '';
+}
+
 async function loadCatalog() {
   try {
     const res = await fetch('/api/products');
@@ -41,7 +64,7 @@ function renderCard(p) {
     : '<div class="placeholder">🧊</div>';
   const chips = (p.variants || [])
     .slice(0, 4)
-    .map((v) => `<span class="chip">${esc(v.name)}</span>`)
+    .map((v) => `<span class="chip">${swHtml(v.color)}${esc(v.name)}</span>`)
     .join('');
   const more = (p.variants || []).length > 4 ? `<span class="chip">+${p.variants.length - 4}</span>` : '';
   return `
@@ -63,22 +86,36 @@ function openOrder(product) {
   document.getElementById('orderSummary').innerHTML =
     `<div class="notice">${esc(product.description) || 'Модель для 3D-печати'}</div>`;
 
-  const sel = document.getElementById('variantSelect');
+  const box = document.getElementById('variantOptions');
+  const lbl = document.getElementById('variantLabel');
+  current.variant = null;
   if (product.variants && product.variants.length) {
-    sel.innerHTML = product.variants
+    box.innerHTML = product.variants
       .map(
-        (v) =>
-          `<option value="${v.id}" data-extra="${v.extra_price}">${esc(v.name)}${
-            v.extra_price ? ' (+' + money(v.extra_price) + ')' : ''
-          }</option>`
+        (v) => `
+        <button type="button" class="variant-option" data-vid="${v.id}" data-extra="${v.extra_price}">
+          ${swHtml(v.color, 'sw-lg')}
+          <span>${esc(v.name)}</span>
+          <span class="vprice">${v.extra_price ? '+' + money(v.extra_price) : ''}</span>
+        </button>`
       )
       .join('');
-    sel.style.display = '';
-    sel.previousElementSibling.style.display = '';
+    box.querySelectorAll('.variant-option').forEach((b) =>
+      b.addEventListener('click', () => {
+        box.querySelectorAll('.variant-option').forEach((x) => x.classList.remove('selected'));
+        b.classList.add('selected');
+        current.variant = { id: b.dataset.vid, extra: Number(b.dataset.extra) || 0 };
+        updateTotal();
+      })
+    );
+    // Выбираем первый вариант по умолчанию
+    box.querySelector('.variant-option').click();
+    box.style.display = '';
+    lbl.style.display = '';
   } else {
-    sel.innerHTML = '<option value="">Без выбора</option>';
-    sel.style.display = 'none';
-    sel.previousElementSibling.style.display = 'none';
+    box.innerHTML = '';
+    box.style.display = 'none';
+    lbl.style.display = 'none';
   }
 
   const acc = window.Auth.getState().user;
@@ -93,8 +130,7 @@ function openOrder(product) {
 
 function updateTotal() {
   if (!current.product) return;
-  const sel = document.getElementById('variantSelect');
-  const extra = sel && sel.selectedOptions[0] ? Number(sel.selectedOptions[0].dataset.extra || 0) : 0;
+  const extra = current.variant ? current.variant.extra : 0;
   const qty = Math.max(1, parseInt(document.getElementById('qty').value, 10) || 1);
   const total = (current.product.price + extra) * qty;
   document.getElementById('totalPreview').value = money(total);
@@ -109,10 +145,9 @@ async function submitOrder() {
     errEl.textContent = 'Пожалуйста, укажите ваше имя.';
     return;
   }
-  const sel = document.getElementById('variantSelect');
   const payload = {
     product_id: current.product.id,
-    variant_id: sel && sel.value ? sel.value : null,
+    variant_id: current.variant ? current.variant.id : null,
     quantity: parseInt(document.getElementById('qty').value, 10) || 1,
     customer_name: name,
     phone: document.getElementById('custPhone').value.trim(),
@@ -142,7 +177,6 @@ async function submitOrder() {
   }
 }
 
-document.getElementById('variantSelect').addEventListener('change', updateTotal);
 document.getElementById('qty').addEventListener('input', updateTotal);
 document.getElementById('submitOrder').addEventListener('click', submitOrder);
 modal.querySelectorAll('[data-close]').forEach((el) => el.addEventListener('click', () => modal.classList.remove('open')));
