@@ -72,6 +72,49 @@ Render/Railway в настройках сервиса можно выбрать 
 
 ---
 
+## 🖥 Свой VPS (CentOS Stream 9 / RHEL / Rocky / Alma 9)
+
+Лучший вариант, если VPS уже есть: сайт не «засыпает», база лежит локально
+(Turso не нужен), скорость выше.
+
+Подключитесь к серверу по SSH и выполните **от root**:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/ItzSkater/3D-Store/main/deploy/setup-centos.sh -o setup.sh
+bash setup.sh
+```
+
+Скрипт сам настроит всё: Node.js, код, зависимости, автозапуск (systemd), nginx,
+firewalld и SELinux. В конце покажет адрес сайта и сгенерированный пароль
+владельца.
+
+### Что дальше
+
+| Действие | Команда |
+|---|---|
+| Логи | `journalctl -u 3d-store -f` |
+| Перезапуск | `systemctl restart 3d-store` |
+| Настройки (пароль, Telegram) | `/etc/3d-store.env` |
+| Обновить код с GitHub | `bash /opt/3d-store/deploy/update.sh` |
+| База и данные | `/var/lib/3d-store/store.db` |
+
+### HTTPS и домен
+
+Направьте A-запись домена на IP сервера, затем:
+
+```bash
+dnf install -y epel-release && dnf install -y certbot python3-certbot-nginx
+certbot --nginx -d ваш-домен.ru
+```
+
+Сертификат бесплатный и обновляется автоматически.
+
+### Резервная копия
+
+```bash
+cp /var/lib/3d-store/store.db ~/backup-$(date +%F).db
+```
+
 ## 🚂 Альтернатива: Railway
 
 Тоже деплой из GitHub через сайт. В проекте есть `railway.json`.

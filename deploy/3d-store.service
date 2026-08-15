@@ -1,0 +1,30 @@
+[Unit]
+Description=3D-Store — магазин моделей для 3D-печати
+Documentation=https://github.com/ItzSkater/3D-Store
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=webstore
+Group=webstore
+WorkingDirectory=/opt/3d-store
+ExecStart=/usr/bin/node src/server.js
+EnvironmentFile=/etc/3d-store.env
+Restart=always
+RestartSec=5
+
+# Логи в journald: journalctl -u 3d-store -f
+StandardOutput=journal
+StandardError=journal
+
+# Ограничения безопасности
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+# Каталог с базой и загрузками должен оставаться доступным для записи
+ReadWritePaths=/var/lib/3d-store
+
+[Install]
+WantedBy=multi-user.target
