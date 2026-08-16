@@ -59,8 +59,11 @@ async function loadCatalog() {
 }
 
 function renderCard(p) {
-  const img = p.image
-    ? `<img src="/img/${esc(p.image)}" alt="${esc(p.name)}" loading="lazy" />`
+  const cover = (p.images && p.images[0]) || p.image;
+  const img = cover
+    ? `<img src="/img/${esc(cover)}" alt="${esc(p.name)}" loading="lazy" />${
+        p.images && p.images.length > 1 ? `<span class="photo-count">📷 ${p.images.length}</span>` : ''
+      }`
     : '<div class="placeholder">🧊</div>';
   const chips = (p.variants || [])
     .slice(0, 4)
@@ -80,36 +83,69 @@ function renderCard(p) {
     </div>`;
 }
 
+function galleryHtml(p) {
+  const imgs = p.images || [];
+  if (!imgs.length) return '';
+  const thumbs =
+    imgs.length > 1
+      ? `<div class="gal-thumbs">${imgs
+          .map((id, i) => `<img src="/img/${esc(id)}" data-gal="${i}" class="${i === 0 ? 'active' : ''}" alt="" />`)
+          .join('')}</div>`
+      : '';
+  return `<div class="gallery"><img class="gal-main" id="galMain" src="/img/${esc(imgs[0])}" alt="" />${thumbs}</div>`;
+}
+
 function openOrder(product) {
   current.product = product;
   document.getElementById('orderTitle').textContent = 'Заказ: ' + product.name;
   document.getElementById('orderSummary').innerHTML =
+    galleryHtml(product) +
     `<div class="notice">${esc(product.description) || 'Модель для 3D-печати'}</div>`;
+  document.querySelectorAll('#orderSummary [data-gal]').forEach((t) =>
+    t.addEventListener('click', () => {
+      document.getElementById('galMain').src = t.src;
+      document.querySelectorAll('#orderSummary [data-gal]').forEach((x) => x.classList.remove('active'));
+      t.classList.add('active');
+    })
+  );
 
   const box = document.getElementById('variantOptions');
   const lbl = document.getElementById('variantLabel');
   current.variant = null;
   if (product.variants && product.variants.length) {
     box.innerHTML = product.variants
-      .map(
-        (v) => `
-        <button type="button" class="variant-option" data-vid="${v.id}" data-extra="${v.extra_price}">
+      .map((v) => {
+        const tracked = v.stock !== null && v.stock !== undefined;
+        const oos = tracked && v.stock <= 0;
+        const stockNote = oos
+          ? '<span class="vstock oos">нет в наличии</span>'
+          : tracked
+          ? `<span class="vstock">в наличии: ${v.stock}</span>`
+          : '';
+        return `
+        <button type="button" class="variant-option${oos ? ' oos' : ''}" data-vid="${v.id}" data-extra="${v.extra_price}" data-stock="${tracked ? v.stock : ''}" ${oos ? 'disabled' : ''}>
           ${swHtml(v.color, 'sw-lg')}
           <span>${esc(v.name)}</span>
-          <span class="vprice">${v.extra_price ? '+' + money(v.extra_price) : ''}</span>
-        </button>`
-      )
+          <span class="vmeta">${stockNote}<span class="vprice">${v.extra_price ? '+' + money(v.extra_price) : ''}</span></span>
+        </button>`;
+      })
       .join('');
-    box.querySelectorAll('.variant-option').forEach((b) =>
+    box.querySelectorAll('.variant-option:not(.oos)').forEach((b) =>
       b.addEventListener('click', () => {
         box.querySelectorAll('.variant-option').forEach((x) => x.classList.remove('selected'));
         b.classList.add('selected');
-        current.variant = { id: b.dataset.vid, extra: Number(b.dataset.extra) || 0 };
+        current.variant = {
+          id: b.dataset.vid,
+          extra: Number(b.dataset.extra) || 0,
+          stock: b.dataset.stock === '' ? null : Number(b.dataset.stock),
+        };
         updateTotal();
       })
     );
-    // Выбираем первый вариант по умолчанию
-    box.querySelector('.variant-option').click();
+    // Выбираем первый доступный вариант по умолчанию
+    const firstAvail = box.querySelector('.variant-option:not(.oos)');
+    if (firstAvail) firstAvail.click();
+    else document.getElementById('orderError').textContent = 'К сожалению, всё распродано. Напишите продавцу в чате.';
     box.style.display = '';
     lbl.style.display = '';
   } else {
@@ -131,7 +167,15 @@ function openOrder(product) {
 function updateTotal() {
   if (!current.product) return;
   const extra = current.variant ? current.variant.extra : 0;
-  const qty = Math.max(1, parseInt(document.getElementById('qty').value, 10) || 1);
+  const qtyInput = document.getElementById('qty');
+  let qty = Math.max(1, parseInt(qtyInput.value, 10) || 1);
+  // Не даём заказать больше, чем есть на складе
+  const stock = current.variant ? current.variant.stock : null;
+  if (stock !== null && stock !== undefined && qty > stock) {
+    qty = stock;
+    qtyInput.value = stock;
+  }
+  qtyInput.max = stock !== null && stock !== undefined ? stock : '';
   const total = (current.product.price + extra) * qty;
   document.getElementById('totalPreview').value = money(total);
 }
@@ -143,6 +187,10 @@ async function submitOrder() {
   const name = document.getElementById('custName').value.trim();
   if (!name) {
     errEl.textContent = 'Пожалуйста, укажите ваше имя.';
+    return;
+  }
+  if (current.product.variants && current.product.variants.length && !current.variant) {
+    errEl.textContent = 'Выберите вариант филамента.';
     return;
   }
   const payload = {

@@ -82,12 +82,13 @@
           </div>
         </div>
 
-        <label>Фото модели</label>
-        <input type="file" id="pImage" accept="image/*" />
-        <div id="currentImage" class="hint"></div>
+        <label>Фото модели (до 10)</label>
+        <input type="file" id="pImages" accept="image/*" multiple />
+        <div class="hint" id="imagesHint">Можно выбрать несколько файлов сразу. Первое фото — обложка.</div>
+        <div id="currentImages" class="pimgs"></div>
 
         <label>Варианты филамента</label>
-        <div class="hint" style="margin-top:0;margin-bottom:8px;">Название и доплата к базовой цене (0 — без доплаты). Оставьте пустым, если вариантов нет.</div>
+        <div class="hint" style="margin-top:0;margin-bottom:8px;">Название, доплата к базовой цене (0 — без доплаты) и остаток на складе (пусто — не отслеживать). Оставьте пустым, если вариантов нет.</div>
         <div id="variantsBox"></div>
         <button class="btn ghost small" id="addVariantBtn" type="button">+ Добавить вариант</button>
 

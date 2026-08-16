@@ -107,12 +107,19 @@ async function showProduct(chatId, productId) {
 
   const variants = await db.all('SELECT * FROM variants WHERE product_id = ? ORDER BY id', [p.id]);
   const rows = variants.length
-    ? variants.map((v) => [
-        {
-          text: `${v.name}${v.extra_price ? ' (+' + money(v.extra_price) + ')' : ''} — ${money(p.price + v.extra_price)}`,
-          callback_data: `v:${p.id}:${v.id}`,
-        },
-      ])
+    ? variants.map((v) => {
+        const tracked = v.stock !== null && v.stock !== undefined;
+        if (tracked && v.stock <= 0) {
+          return [{ text: `${v.name} — нет в наличии`, callback_data: 'oos' }];
+        }
+        const stockNote = tracked ? ` · ${v.stock} шт` : '';
+        return [
+          {
+            text: `${v.name}${v.extra_price ? ' (+' + money(v.extra_price) + ')' : ''} — ${money(p.price + v.extra_price)}${stockNote}`,
+            callback_data: `v:${p.id}:${v.id}`,
+          },
+        ];
+      })
     : [[{ text: `Заказать — ${money(p.price)}`, callback_data: `v:${p.id}:0` }]];
   rows.push([{ text: '← Назад к каталогу', callback_data: 'cat' }]);
 
@@ -212,6 +219,19 @@ async function createOrder(chatId, from) {
   const v = data.variant_id ? await db.get('SELECT * FROM variants WHERE id = ?', [data.variant_id]) : null;
   const unit = p.price + (v ? v.extra_price : 0);
   const qty = Math.max(1, parseInt(data.quantity, 10) || 1);
+
+  // Проверка остатка (если отслеживается)
+  if (v && v.stock !== null && v.stock !== undefined) {
+    if (v.stock <= 0) {
+      await clearState(chatId);
+      return tg.sendMessage(chatId, '😔 Этот цвет закончился. Выберите другой.', mainMenu());
+    }
+    if (qty > v.stock) {
+      await clearState(chatId);
+      return tg.sendMessage(chatId, `😔 В наличии только ${v.stock} шт этого цвета. Оформите заказ заново.`, mainMenu());
+    }
+  }
+
   const total = unit * qty;
   const token = crypto.randomBytes(24).toString('hex');
 
@@ -235,6 +255,11 @@ async function createOrder(chatId, from) {
     ]
   );
   const orderId = Number(info.lastInsertRowid);
+
+  // Списываем остаток
+  if (v && v.stock !== null && v.stock !== undefined) {
+    await db.run('UPDATE variants SET stock = MAX(stock - ?, 0) WHERE id = ? AND stock IS NOT NULL', [qty, v.id]);
+  }
 
   // Сохраним телефон в профиле, если его ещё нет
   if (data.phone && !user.phone) {
@@ -436,6 +461,9 @@ async function handleText(chatId, text, from, isOwner) {
 async function handleCallback(cb, isOwner) {
   const chatId = cb.message.chat.id;
   const dataStr = cb.data || '';
+  if (dataStr === 'oos') {
+    return tg.answerCallback(cb.id, 'Этого цвета нет в наличии', true);
+  }
   await tg.answerCallback(cb.id);
 
   if (dataStr === 'cat') return showCatalog(chatId);
@@ -479,6 +507,12 @@ async function handleCallback(cb, isOwner) {
     const o = await db.get('SELECT * FROM orders WHERE id = ?', [oid]);
     if (!o) return tg.sendMessage(chatId, 'Заказ не найден.');
     await db.run('UPDATE orders SET status = ? WHERE id = ?', [status, o.id]);
+    // Отмена возвращает остаток, «раз-отмена» — списывает обратно
+    if (o.variant_id && status === 'cancelled' && o.status !== 'cancelled') {
+      await db.run('UPDATE variants SET stock = stock + ? WHERE id = ? AND stock IS NOT NULL', [o.quantity, o.variant_id]);
+    } else if (o.variant_id && o.status === 'cancelled' && status !== 'cancelled') {
+      await db.run('UPDATE variants SET stock = MAX(stock - ?, 0) WHERE id = ? AND stock IS NOT NULL', [o.quantity, o.variant_id]);
+    }
     const notify = require('./notify');
     notify.notifyCustomerStatus({ ...o, status }, status).catch(() => {});
     return tg.sendMessage(chatId, `✅ Заказ #${o.id}: статус изменён на «${STATUS[status]}».`);

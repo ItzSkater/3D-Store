@@ -100,6 +100,13 @@ const SCHEMA = [
      user_id INTEGER NOT NULL,
      created_at TEXT NOT NULL DEFAULT (datetime('now'))
    )`,
+  // Дополнительные фото модели (до 10), первая — обложка
+  `CREATE TABLE IF NOT EXISTS product_images (
+     id INTEGER PRIMARY KEY AUTOINCREMENT,
+     product_id INTEGER NOT NULL,
+     image_id INTEGER NOT NULL,
+     pos INTEGER NOT NULL DEFAULT 0
+   )`,
   // Состояние диалога с ботом (пошаговое оформление заказа)
   `CREATE TABLE IF NOT EXISTS tg_state (
      chat_id TEXT PRIMARY KEY,
@@ -130,6 +137,9 @@ async function init() {
   // Цвет варианта филамента: JSON {"c":["#hex",...],"m":true|false}
   // (несколько цветов = градиент, m = металлик)
   await addColumnIfMissing('variants', 'color', "TEXT DEFAULT ''");
+  // Остаток на складе: NULL = не отслеживается, число = сколько в наличии
+  await addColumnIfMissing('variants', 'stock', 'INTEGER');
+  await client.execute('CREATE INDEX IF NOT EXISTS idx_pimg_product ON product_images(product_id)');
   await client.execute(
     'CREATE INDEX IF NOT EXISTS idx_users_tg ON users(telegram_chat_id)'
   );

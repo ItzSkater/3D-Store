@@ -107,10 +107,21 @@ async function loadProducts() {
 }
 
 function renderAdminCard(p) {
-  const img = p.image
-    ? `<img src="/img/${esc(p.image)}" alt="" />`
+  const cover = (p.images && p.images[0]) || p.image;
+  const img = cover
+    ? `<img src="/img/${esc(cover)}" alt="" />${p.images && p.images.length > 1 ? `<span class="photo-count">📷 ${p.images.length}</span>` : ''}`
     : '<div class="placeholder">🧊</div>';
-  const chips = (p.variants || []).map((v) => `<span class="chip">${swHtml(v.color)}${esc(v.name)}${v.extra_price ? ' +' + money(v.extra_price) : ''}</span>`).join('');
+  const chips = (p.variants || [])
+    .map((v) => {
+      const stock =
+        v.stock === null || v.stock === undefined
+          ? ''
+          : v.stock > 0
+          ? ` · ${v.stock} шт`
+          : ' · нет';
+      return `<span class="chip${v.stock === 0 ? ' oos' : ''}">${swHtml(v.color)}${esc(v.name)}${v.extra_price ? ' +' + money(v.extra_price) : ''}${stock}</span>`;
+    })
+    .join('');
   return `
     <div class="card">
       <div class="thumb">${img}</div>
@@ -137,7 +148,7 @@ function parseColorSpec(spec) {
   }
 }
 
-function addVariantRow(name = '', extra = '', color = '') {
+function addVariantRow(name = '', extra = '', color = '', stock = null) {
   const state = parseColorSpec(color);
   const row = document.createElement('div');
   row.className = 'variant-row';
@@ -145,6 +156,7 @@ function addVariantRow(name = '', extra = '', color = '') {
     <div class="variant-main">
       <input type="text" placeholder="PLA Красный" value="${esc(name)}" data-vname />
       <input type="number" placeholder="доплата ₽" min="0" step="1" value="${extra === '' ? '' : esc(extra)}" data-vprice />
+      <input type="number" placeholder="∞ шт" min="0" step="1" value="${stock === null || stock === undefined ? '' : esc(stock)}" data-vstock title="Остаток на складе (пусто — не отслеживать)" />
       <button class="btn danger small" type="button" data-vdel>✕</button>
     </div>
     <div class="variant-colors">
@@ -193,19 +205,51 @@ function collectVariants() {
     .map((r) => {
       const colors = Array.from(r.querySelectorAll('[data-vdots] input[type="color"]')).map((i) => i.value);
       const metal = r.querySelector('[data-vmetal]').checked;
+      const stockVal = r.querySelector('[data-vstock]').value.trim();
       return {
         name: r.querySelector('[data-vname]').value.trim(),
         extra_price: Number(r.querySelector('[data-vprice]').value) || 0,
         color: colors.length ? { c: colors, m: metal } : '',
+        stock: stockVal === '' ? '' : Math.max(0, parseInt(stockVal, 10) || 0),
       };
     })
     .filter((v) => v.name);
 }
 
+let removeImages = []; // id фото, отмеченные на удаление
+
+function renderCurrentImages(images) {
+  const box = $('currentImages');
+  const list = (images || []).filter((id) => !removeImages.includes(id));
+  if (!list.length) {
+    box.innerHTML = '';
+    $('imagesHint').textContent = 'Можно выбрать несколько файлов сразу. Первое фото — обложка.';
+    return;
+  }
+  $('imagesHint').textContent = `Фото: ${list.length} из 10. Первое — обложка. Нажмите ✕, чтобы убрать (удалится после сохранения).`;
+  box.innerHTML = list
+    .map(
+      (id, i) => `
+      <span class="pimg${i === 0 ? ' cover' : ''}">
+        <img src="/img/${esc(id)}" alt="" />
+        <button type="button" class="cdel" data-rm="${esc(id)}" title="Удалить фото">×</button>
+        ${i === 0 ? '<b class="cover-tag">обложка</b>' : ''}
+      </span>`
+    )
+    .join('');
+  box.querySelectorAll('[data-rm]').forEach((b) =>
+    b.addEventListener('click', () => {
+      removeImages.push(b.dataset.rm);
+      renderCurrentImages(images);
+    })
+  );
+}
+
 function openProduct(p) {
   $('productError').textContent = '';
   $('variantsBox').innerHTML = '';
-  $('pImage').value = '';
+  $('pImages').value = '';
+  removeImages = [];
   if (p) {
     $('productModalTitle').textContent = 'Редактирование модели';
     $('pId').value = p.id;
@@ -213,8 +257,8 @@ function openProduct(p) {
     $('pDesc').value = p.description || '';
     $('pPrice').value = p.price;
     $('pActive').value = String(p.is_active);
-    $('currentImage').innerHTML = p.image ? `Текущее фото: <a href="/img/${esc(p.image)}" target="_blank">открыть</a>. Загрузите новое, чтобы заменить.` : 'Фото не загружено.';
-    (p.variants || []).forEach((v) => addVariantRow(v.name, v.extra_price, v.color));
+    renderCurrentImages(p.images || []);
+    (p.variants || []).forEach((v) => addVariantRow(v.name, v.extra_price, v.color, v.stock));
     $('deleteProductBtn').style.display = '';
   } else {
     $('productModalTitle').textContent = 'Новая модель';
@@ -223,7 +267,7 @@ function openProduct(p) {
     $('pDesc').value = '';
     $('pPrice').value = '';
     $('pActive').value = '1';
-    $('currentImage').textContent = '';
+    renderCurrentImages([]);
     $('deleteProductBtn').style.display = 'none';
   }
   productModal.classList.add('open');
@@ -246,7 +290,9 @@ $('saveProductBtn').addEventListener('click', async () => {
   fd.append('price', $('pPrice').value || '0');
   fd.append('is_active', $('pActive').value);
   fd.append('variants', JSON.stringify(collectVariants()));
-  if ($('pImage').files[0]) fd.append('image', $('pImage').files[0]);
+  fd.append('remove_images', JSON.stringify(removeImages));
+  const files = Array.from($('pImages').files).slice(0, 10);
+  for (const f of files) fd.append('images', f);
 
   const id = $('pId').value;
   const url = id ? '/api/products/' + id : '/api/products';

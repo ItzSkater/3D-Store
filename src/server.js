@@ -275,11 +275,30 @@ app.post('/api/settings/test-telegram', requireOwner, wrap(async (req, res) => {
 // --- Модели ---
 async function attachVariants(product) {
   const variants = await db.all(
-    'SELECT id, name, extra_price, color FROM variants WHERE product_id = ? ORDER BY id',
+    'SELECT id, name, extra_price, color, stock FROM variants WHERE product_id = ? ORDER BY id',
     [product.id]
   );
-  return { ...product, variants };
+  const imgRows = await db.all(
+    'SELECT image_id FROM product_images WHERE product_id = ? ORDER BY pos, id',
+    [product.id]
+  );
+  let images = imgRows.map((r) => String(r.image_id));
+  // Старые записи: одно фото лежало прямо в products.image
+  if (!images.length && product.image) images = [String(product.image)];
+  return { ...product, variants, images };
 }
+
+// Синхронизирует обложку (products.image) с первым фото галереи —
+// её используют старые пути (бот, карточки).
+async function syncCover(productId) {
+  const first = await db.get(
+    'SELECT image_id FROM product_images WHERE product_id = ? ORDER BY pos, id LIMIT 1',
+    [productId]
+  );
+  await db.run('UPDATE products SET image = ? WHERE id = ?', [first ? String(first.image_id) : '', productId]);
+}
+
+const MAX_IMAGES = 10;
 
 // Нормализация цвета варианта: {"c":["#hex",...],"m":bool} или пусто.
 // До 4 цветов (2+ = градиент), m — металлик.
@@ -327,74 +346,122 @@ function parseVariants(raw) {
   }
   if (!Array.isArray(list)) list = [];
   return list
-    .map((v) => ({
-      name: String(v.name || '').trim(),
-      extra_price: Number(v.extra_price) || 0,
-      color: normColor(v.color),
-    }))
+    .map((v) => {
+      // Остаток: пустая строка/null = не отслеживать, иначе целое >= 0
+      let stock = null;
+      if (v.stock !== undefined && v.stock !== null && String(v.stock).trim() !== '') {
+        stock = Math.max(0, parseInt(v.stock, 10) || 0);
+      }
+      return {
+        name: String(v.name || '').trim(),
+        extra_price: Number(v.extra_price) || 0,
+        color: normColor(v.color),
+        stock,
+      };
+    })
     .filter((v) => v.name);
 }
 
-app.post('/api/products', requireOwner, upload.single('image'), wrap(async (req, res) => {
+async function insertVariants(productId, variants) {
+  for (const v of variants) {
+    await db.run(
+      'INSERT INTO variants (product_id, name, extra_price, color, stock) VALUES (?, ?, ?, ?, ?)',
+      [productId, v.name, v.extra_price, v.color, v.stock]
+    );
+  }
+}
+
+// Легаси-миграция: если фото модели лежит только в products.image,
+// переносим его в галерею, чтобы дальше работать единообразно.
+async function ensureGallery(p) {
+  const cnt = await db.get('SELECT COUNT(*) AS c FROM product_images WHERE product_id = ?', [p.id]);
+  if (!cnt.c && p.image) {
+    await db.run('INSERT INTO product_images (product_id, image_id, pos) VALUES (?, ?, 0)', [
+      p.id,
+      parseInt(p.image, 10),
+    ]);
+  }
+}
+
+app.post('/api/products', requireOwner, upload.array('images', MAX_IMAGES), wrap(async (req, res) => {
   const name = String(req.body.name || '').trim();
   if (!name) return res.status(400).json({ error: 'Укажите название модели' });
   const description = String(req.body.description || '').trim();
   const price = Number(req.body.price) || 0;
   const is_active = req.body.is_active === '0' ? 0 : 1;
-  const image = await saveImage(req.file);
   const variants = parseVariants(req.body.variants);
 
   const info = await db.run(
     'INSERT INTO products (name, description, price, image, is_active) VALUES (?, ?, ?, ?, ?)',
-    [name, description, price, image, is_active]
+    [name, description, price, '', is_active]
   );
   const productId = Number(info.lastInsertRowid);
-  for (const v of variants) {
-    await db.run('INSERT INTO variants (product_id, name, extra_price, color) VALUES (?, ?, ?, ?)', [
+
+  const files = (req.files || []).slice(0, MAX_IMAGES);
+  for (let i = 0; i < files.length; i++) {
+    const imgId = await saveImage(files[i]);
+    await db.run('INSERT INTO product_images (product_id, image_id, pos) VALUES (?, ?, ?)', [
       productId,
-      v.name,
-      v.extra_price,
-      v.color,
+      parseInt(imgId, 10),
+      i,
     ]);
   }
+  await syncCover(productId);
+  await insertVariants(productId, variants);
+
   res.json(await attachVariants(await db.get('SELECT * FROM products WHERE id = ?', [productId])));
 }));
 
-app.put('/api/products/:id', requireOwner, upload.single('image'), wrap(async (req, res) => {
+app.put('/api/products/:id', requireOwner, upload.array('images', MAX_IMAGES), wrap(async (req, res) => {
   const p = await db.get('SELECT * FROM products WHERE id = ?', [req.params.id]);
   if (!p) return res.status(404).json({ error: 'Модель не найдена' });
+  await ensureGallery(p);
 
   const name = String(req.body.name ?? p.name).trim() || p.name;
   const description = String(req.body.description ?? p.description).trim();
   const price = req.body.price !== undefined ? Number(req.body.price) || 0 : p.price;
   const is_active = req.body.is_active === undefined ? p.is_active : req.body.is_active === '0' ? 0 : 1;
 
-  let image = p.image;
-  if (req.file) {
-    await deleteImage(p.image);
-    image = await saveImage(req.file);
-  }
-
-  await db.run('UPDATE products SET name=?, description=?, price=?, image=?, is_active=? WHERE id=?', [
+  await db.run('UPDATE products SET name=?, description=?, price=?, is_active=? WHERE id=?', [
     name,
     description,
     price,
-    image,
     is_active,
     p.id,
   ]);
 
+  // Удаление отмеченных фото
+  let removeIds = [];
+  try {
+    removeIds = JSON.parse(req.body.remove_images || '[]');
+  } catch {
+    removeIds = [];
+  }
+  for (const rid of (Array.isArray(removeIds) ? removeIds : []).map((x) => parseInt(x, 10)).filter(Boolean)) {
+    await db.run('DELETE FROM product_images WHERE product_id = ? AND image_id = ?', [p.id, rid]);
+    await deleteImage(rid);
+  }
+
+  // Добавление новых фото (не больше MAX_IMAGES суммарно)
+  const cur = await db.get('SELECT COUNT(*) AS c, COALESCE(MAX(pos), -1) AS mx FROM product_images WHERE product_id = ?', [p.id]);
+  let free = MAX_IMAGES - cur.c;
+  let pos = cur.mx + 1;
+  for (const f of (req.files || [])) {
+    if (free <= 0) break;
+    const imgId = await saveImage(f);
+    await db.run('INSERT INTO product_images (product_id, image_id, pos) VALUES (?, ?, ?)', [
+      p.id,
+      parseInt(imgId, 10),
+      pos++,
+    ]);
+    free--;
+  }
+  await syncCover(p.id);
+
   if (req.body.variants !== undefined) {
     const variants = parseVariants(req.body.variants);
     await db.run('DELETE FROM variants WHERE product_id = ?', [p.id]);
-    for (const v of variants) {
-      await db.run('INSERT INTO variants (product_id, name, extra_price, color) VALUES (?, ?, ?, ?)', [
-        p.id,
-        v.name,
-        v.extra_price,
-        v.color,
-      ]);
-    }
+    await insertVariants(p.id, variants);
   }
   res.json(await attachVariants(await db.get('SELECT * FROM products WHERE id = ?', [p.id])));
 }));
@@ -402,7 +469,10 @@ app.put('/api/products/:id', requireOwner, upload.single('image'), wrap(async (r
 app.delete('/api/products/:id', requireOwner, wrap(async (req, res) => {
   const p = await db.get('SELECT * FROM products WHERE id = ?', [req.params.id]);
   if (!p) return res.status(404).json({ error: 'Модель не найдена' });
-  await deleteImage(p.image);
+  const imgs = await db.all('SELECT image_id FROM product_images WHERE product_id = ?', [p.id]);
+  for (const r of imgs) await deleteImage(r.image_id);
+  if (p.image && !imgs.some((r) => String(r.image_id) === String(p.image))) await deleteImage(p.image);
+  await db.run('DELETE FROM product_images WHERE product_id = ?', [p.id]);
   await db.run('DELETE FROM variants WHERE product_id = ?', [p.id]);
   await db.run('DELETE FROM products WHERE id = ?', [p.id]);
   res.json({ ok: true });
@@ -438,6 +508,14 @@ app.post('/api/orders', requireUser, wrap(async (req, res) => {
     variant = await db.get('SELECT * FROM variants WHERE id = ? AND product_id = ?', [variant_id, product.id]);
   }
   const qty = Math.max(1, parseInt(quantity, 10) || 1);
+
+  // Проверка остатка (если он отслеживается у варианта)
+  if (variant && variant.stock !== null && variant.stock !== undefined) {
+    if (variant.stock <= 0) return res.status(400).json({ error: 'Этого цвета нет в наличии' });
+    if (qty > variant.stock) {
+      return res.status(400).json({ error: `В наличии только ${variant.stock} шт этого цвета` });
+    }
+  }
   const unit = product.price + (variant ? variant.extra_price : 0);
   const total = unit * qty;
   const token = newToken();
@@ -463,6 +541,12 @@ app.post('/api/orders', requireUser, wrap(async (req, res) => {
   );
 
   const orderId = Number(info.lastInsertRowid);
+
+  // Списываем остаток
+  if (variant && variant.stock !== null && variant.stock !== undefined) {
+    await db.run('UPDATE variants SET stock = MAX(stock - ?, 0) WHERE id = ? AND stock IS NOT NULL', [qty, variant.id]);
+  }
+
   const firstMsg = String(message || '').trim();
   if (firstMsg) {
     await db.run('INSERT INTO messages (order_id, sender, body) VALUES (?, ?, ?)', [orderId, 'customer', firstMsg]);
@@ -503,6 +587,12 @@ app.put('/api/orders/:id/status', requireOwner, wrap(async (req, res) => {
   const o = await db.get('SELECT * FROM orders WHERE id = ?', [req.params.id]);
   if (!o) return res.status(404).json({ error: 'Заказ не найден' });
   await db.run('UPDATE orders SET status = ? WHERE id = ?', [status, o.id]);
+  // Отмена возвращает остаток на склад, «раз-отмена» — списывает обратно
+  if (o.variant_id && status === 'cancelled' && o.status !== 'cancelled') {
+    await db.run('UPDATE variants SET stock = stock + ? WHERE id = ? AND stock IS NOT NULL', [o.quantity, o.variant_id]);
+  } else if (o.variant_id && o.status === 'cancelled' && status !== 'cancelled') {
+    await db.run('UPDATE variants SET stock = MAX(stock - ?, 0) WHERE id = ? AND stock IS NOT NULL', [o.quantity, o.variant_id]);
+  }
   notify.notifyCustomerStatus({ ...o, status }, status).catch(() => {});
   res.json({ ok: true, status });
 }));
