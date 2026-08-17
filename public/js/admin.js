@@ -217,22 +217,25 @@ function collectVariants() {
 }
 
 let removeImages = []; // id фото, отмеченные на удаление
+let editorImages = []; // текущий список фото открытой модели
 
 function renderCurrentImages(images) {
+  if (images) editorImages = images.slice();
   const box = $('currentImages');
-  const list = (images || []).filter((id) => !removeImages.includes(id));
+  const list = editorImages.filter((id) => !removeImages.includes(id));
   if (!list.length) {
     box.innerHTML = '';
     $('imagesHint').textContent = 'Можно выбрать несколько файлов сразу. Первое фото — обложка.';
     return;
   }
-  $('imagesHint').textContent = `Фото: ${list.length} из 10. Первое — обложка. Нажмите ✕, чтобы убрать (удалится после сохранения).`;
+  $('imagesHint').textContent = `Фото: ${list.length} из 10. Первое — обложка. ✂️ — обрезать, ✕ — убрать.`;
   box.innerHTML = list
     .map(
       (id, i) => `
       <span class="pimg${i === 0 ? ' cover' : ''}">
         <img src="/img/${esc(id)}" alt="" />
         <button type="button" class="cdel" data-rm="${esc(id)}" title="Удалить фото">×</button>
+        <button type="button" class="ccrop" data-crop="${esc(id)}" title="Обрезать фото">✂️</button>
         ${i === 0 ? '<b class="cover-tag">обложка</b>' : ''}
       </span>`
     )
@@ -240,16 +243,192 @@ function renderCurrentImages(images) {
   box.querySelectorAll('[data-rm]').forEach((b) =>
     b.addEventListener('click', () => {
       removeImages.push(b.dataset.rm);
-      renderCurrentImages(images);
+      renderCurrentImages();
     })
   );
+  box.querySelectorAll('[data-crop]').forEach((b) =>
+    b.addEventListener('click', () => openCrop(b.dataset.crop))
+  );
 }
+
+// ---------- Обрезка фото ----------
+const cropModal = $('cropModal');
+let cropState = { imageId: null, ratio: 1, box: { x: 0.1, y: 0.1, w: 0.8, h: 0.8 } };
+
+function drawCropBox() {
+  const img = $('cropImg');
+  const el = $('cropBox');
+  const b = cropState.box;
+  el.style.left = b.x * img.clientWidth + 'px';
+  el.style.top = b.y * img.clientHeight + 'px';
+  el.style.width = b.w * img.clientWidth + 'px';
+  el.style.height = b.h * img.clientHeight + 'px';
+}
+
+// Вписывает рамку с нужным соотношением сторон по центру снимка
+function fitBox(ratio) {
+  const img = $('cropImg');
+  const W = img.clientWidth || 1;
+  const H = img.clientHeight || 1;
+  cropState.ratio = ratio;
+  if (!ratio) {
+    cropState.box = { x: 0.05, y: 0.05, w: 0.9, h: 0.9 };
+  } else {
+    // ratio — ширина/высота в пикселях экрана
+    let w = W * 0.9;
+    let h = w / ratio;
+    if (h > H * 0.9) {
+      h = H * 0.9;
+      w = h * ratio;
+    }
+    cropState.box = { x: (W - w) / 2 / W, y: (H - h) / 2 / H, w: w / W, h: h / H };
+  }
+  drawCropBox();
+}
+
+function openCrop(imageId) {
+  const pid = $('pId').value;
+  if (!pid) {
+    alert('Сначала сохраните модель, потом можно обрезать фото.');
+    return;
+  }
+  cropState.imageId = imageId;
+  $('cropError').textContent = '';
+  const img = $('cropImg');
+  img.onload = () => fitBox(1); // по умолчанию предлагаем квадрат
+  img.src = '/img/' + imageId;
+  cropModal.classList.add('open');
+}
+
+function closeCrop() {
+  cropModal.classList.remove('open');
+}
+
+// Перетаскивание рамки и её углов (мышь + палец)
+(function initCropDrag() {
+  const stage = $('cropStage');
+  const boxEl = $('cropBox');
+  let mode = null; // 'move' | 'nw' | 'ne' | 'sw' | 'se'
+  let start = null;
+
+  function pt(e) {
+    const t = e.touches ? e.touches[0] : e;
+    const img = $('cropImg');
+    const r = img.getBoundingClientRect();
+    return { x: (t.clientX - r.left) / r.width, y: (t.clientY - r.top) / r.height };
+  }
+
+  function begin(e, m) {
+    mode = m;
+    start = { p: pt(e), box: { ...cropState.box } };
+    e.preventDefault();
+  }
+
+  boxEl.addEventListener('mousedown', (e) => { if (!e.target.dataset.hnd) begin(e, 'move'); });
+  boxEl.addEventListener('touchstart', (e) => { if (!e.target.dataset.hnd) begin(e, 'move'); }, { passive: false });
+  boxEl.querySelectorAll('[data-hnd]').forEach((h) => {
+    h.addEventListener('mousedown', (e) => { e.stopPropagation(); begin(e, h.dataset.hnd); });
+    h.addEventListener('touchstart', (e) => { e.stopPropagation(); begin(e, h.dataset.hnd); }, { passive: false });
+  });
+
+  function move(e) {
+    if (!mode) return;
+    const img = $('cropImg');
+    const aspectPx = cropState.ratio; // ширина/высота в пикселях
+    const W = img.clientWidth || 1;
+    const H = img.clientHeight || 1;
+    const p = pt(e);
+    const dx = p.x - start.p.x;
+    const dy = p.y - start.p.y;
+    const b = { ...start.box };
+
+    if (mode === 'move') {
+      b.x = Math.min(Math.max(b.x + dx, 0), 1 - b.w);
+      b.y = Math.min(Math.max(b.y + dy, 0), 1 - b.h);
+    } else {
+      // Тянем угол: считаем в пикселях, чтобы держать пропорции
+      let left = b.x * W, top = b.y * H, right = (b.x + b.w) * W, bottom = (b.y + b.h) * H;
+      const px = p.x * W, py = p.y * H;
+      if (mode.includes('w')) left = Math.min(px, right - 30);
+      if (mode.includes('e')) right = Math.max(px, left + 30);
+      if (mode.includes('n')) top = Math.min(py, bottom - 30);
+      if (mode.includes('s')) bottom = Math.max(py, top + 30);
+
+      let w = right - left;
+      let h = bottom - top;
+      if (aspectPx) {
+        // Держим заданное соотношение, отталкиваясь от большей стороны
+        if (w / h > aspectPx) w = h * aspectPx;
+        else h = w / aspectPx;
+        if (mode.includes('w')) left = right - w;
+        if (mode.includes('n')) top = bottom - h;
+      }
+      // Не вылезаем за границы снимка
+      left = Math.max(0, Math.min(left, W - w));
+      top = Math.max(0, Math.min(top, H - h));
+      w = Math.min(w, W - left);
+      h = Math.min(h, H - top);
+
+      b.x = left / W; b.y = top / H; b.w = w / W; b.h = h / H;
+    }
+    cropState.box = b;
+    drawCropBox();
+    e.preventDefault();
+  }
+
+  function end() { mode = null; }
+
+  document.addEventListener('mousemove', move);
+  document.addEventListener('touchmove', move, { passive: false });
+  document.addEventListener('mouseup', end);
+  document.addEventListener('touchend', end);
+  stage.addEventListener('dragstart', (e) => e.preventDefault());
+})();
+
+cropModal.querySelectorAll('[data-ratio]').forEach((b) =>
+  b.addEventListener('click', () => {
+    cropModal.querySelectorAll('[data-ratio]').forEach((x) => x.classList.remove('primary'));
+    b.classList.add('primary');
+    fitBox(Number(b.dataset.ratio));
+  })
+);
+cropModal.querySelectorAll('[data-cropclose]').forEach((el) => el.addEventListener('click', closeCrop));
+cropModal.addEventListener('click', (e) => { if (e.target === cropModal) closeCrop(); });
+
+$('cropApply').addEventListener('click', async () => {
+  const pid = $('pId').value;
+  const oldId = cropState.imageId;
+  if (!pid || !oldId) return;
+  const btn = $('cropApply');
+  btn.disabled = true;
+  $('cropError').textContent = '';
+  try {
+    const res = await fetch(`/api/products/${pid}/images/${oldId}/crop`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(cropState.box),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Ошибка');
+    // Подменяем id фото в списке редактора
+    editorImages = editorImages.map((id) => (id === oldId ? data.image_id : id));
+    renderCurrentImages();
+    closeCrop();
+    loadProducts();
+  } catch (e) {
+    $('cropError').textContent = e.message;
+  } finally {
+    btn.disabled = false;
+  }
+});
 
 function openProduct(p) {
   $('productError').textContent = '';
   $('variantsBox').innerHTML = '';
   $('pImages').value = '';
+  $('pSquare').checked = false;
   removeImages = [];
+  editorImages = [];
   if (p) {
     $('productModalTitle').textContent = 'Редактирование модели';
     $('pId').value = p.id;
@@ -291,6 +470,7 @@ $('saveProductBtn').addEventListener('click', async () => {
   fd.append('is_active', $('pActive').value);
   fd.append('variants', JSON.stringify(collectVariants()));
   fd.append('remove_images', JSON.stringify(removeImages));
+  if ($('pSquare').checked) fd.append('square', '1');
   const files = Array.from($('pImages').files).slice(0, 10);
   for (const f of files) fd.append('images', f);
 

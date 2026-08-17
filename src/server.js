@@ -36,20 +36,23 @@ const upload = multer({
 // Приводим фото к WebP: поворот по EXIF (телефонные снимки), ужатие до
 // 1600px по большей стороне, качество 82. Экономит трафик и ускоряет
 // загрузку на телефонах.
-async function toWebp(buffer) {
-  return sharp(buffer, { failOn: 'none' })
-    .rotate()
-    .resize({ width: 1600, height: 1600, fit: 'inside', withoutEnlargement: true })
-    .webp({ quality: 82 })
-    .toBuffer();
+async function toWebp(buffer, { square = false } = {}) {
+  const img = sharp(buffer, { failOn: 'none' }).rotate();
+  if (square) {
+    // Кадрируем по центру значимой части снимка
+    img.resize({ width: 1200, height: 1200, fit: 'cover', position: 'attention' });
+  } else {
+    img.resize({ width: 1600, height: 1600, fit: 'inside', withoutEnlargement: true });
+  }
+  return img.webp({ quality: 82 }).toBuffer();
 }
 
-async function saveImage(file) {
+async function saveImage(file, opts = {}) {
   if (!file) return '';
   let data = file.buffer;
   let mime = file.mimetype || 'image/jpeg';
   try {
-    data = await toWebp(file.buffer);
+    data = await toWebp(file.buffer, opts);
     mime = 'image/webp';
   } catch (e) {
     // Если конвертация не удалась (битый файл и т.п.) — сохраняем как есть
@@ -438,7 +441,7 @@ app.post('/api/products', requireOwner, upload.array('images', MAX_IMAGES), wrap
 
   const files = (req.files || []).slice(0, MAX_IMAGES);
   for (let i = 0; i < files.length; i++) {
-    const imgId = await saveImage(files[i]);
+    const imgId = await saveImage(files[i], { square: req.body.square === '1' });
     await db.run('INSERT INTO product_images (product_id, image_id, pos) VALUES (?, ?, ?)', [
       productId,
       parseInt(imgId, 10),
@@ -487,7 +490,7 @@ app.put('/api/products/:id', requireOwner, upload.array('images', MAX_IMAGES), w
   let pos = cur.mx + 1;
   for (const f of (req.files || [])) {
     if (free <= 0) break;
-    const imgId = await saveImage(f);
+    const imgId = await saveImage(f, { square: req.body.square === '1' });
     await db.run('INSERT INTO product_images (product_id, image_id, pos) VALUES (?, ?, ?)', [
       p.id,
       parseInt(imgId, 10),
@@ -503,6 +506,61 @@ app.put('/api/products/:id', requireOwner, upload.array('images', MAX_IMAGES), w
     await insertVariants(p.id, variants);
   }
   res.json(await attachVariants(await db.get('SELECT * FROM products WHERE id = ?', [p.id])));
+}));
+
+// Обрезка фото модели. Координаты — доли от 0 до 1 относительно снимка.
+// Создаём новое изображение и подменяем им старое в галерее: URL меняется,
+// поэтому браузер гарантированно покажет обрезанный вариант, а не кэш.
+app.post('/api/products/:pid/images/:imgId/crop', requireOwner, wrap(async (req, res) => {
+  const p = await db.get('SELECT * FROM products WHERE id = ?', [req.params.pid]);
+  if (!p) return res.status(404).json({ error: 'Модель не найдена' });
+  await ensureGallery(p);
+
+  const oldId = parseInt(req.params.imgId, 10);
+  const link = await db.get('SELECT * FROM product_images WHERE product_id = ? AND image_id = ?', [p.id, oldId]);
+  if (!link) return res.status(404).json({ error: 'Фото не найдено' });
+
+  const src = await db.get('SELECT data FROM images WHERE id = ?', [oldId]);
+  if (!src) return res.status(404).json({ error: 'Фото не найдено' });
+
+  const num = (v) => (Number.isFinite(Number(v)) ? Number(v) : NaN);
+  let { x, y, w, h } = { x: num(req.body.x), y: num(req.body.y), w: num(req.body.w), h: num(req.body.h) };
+  if ([x, y, w, h].some((v) => Number.isNaN(v)) || w <= 0 || h <= 0) {
+    return res.status(400).json({ error: 'Неверная область обрезки' });
+  }
+
+  const buf = Buffer.isBuffer(src.data) ? src.data : Buffer.from(src.data);
+  let out;
+  try {
+    // Сначала применяем поворот из EXIF, чтобы координаты совпали с тем,
+    // что владелец видел в браузере.
+    const upright = await sharp(buf, { failOn: 'none' }).rotate().toBuffer();
+    const meta = await sharp(upright).metadata();
+    const W = meta.width || 0;
+    const H = meta.height || 0;
+    if (!W || !H) throw new Error('не удалось прочитать размеры');
+
+    const left = Math.min(Math.max(Math.round(x * W), 0), W - 1);
+    const top = Math.min(Math.max(Math.round(y * H), 0), H - 1);
+    const width = Math.max(1, Math.min(Math.round(w * W), W - left));
+    const height = Math.max(1, Math.min(Math.round(h * H), H - top));
+
+    out = await sharp(upright)
+      .extract({ left, top, width, height })
+      .resize({ width: 1600, height: 1600, fit: 'inside', withoutEnlargement: true })
+      .webp({ quality: 82 })
+      .toBuffer();
+  } catch (e) {
+    return res.status(400).json({ error: 'Не удалось обрезать фото: ' + e.message });
+  }
+
+  const ins = await db.run('INSERT INTO images (mime, data) VALUES (?, ?)', ['image/webp', out]);
+  const newId = Number(ins.lastInsertRowid);
+  await db.run('UPDATE product_images SET image_id = ? WHERE product_id = ? AND image_id = ?', [newId, p.id, oldId]);
+  await deleteImage(oldId);
+  await syncCover(p.id);
+
+  res.json({ ok: true, image_id: String(newId) });
 }));
 
 app.delete('/api/products/:id', requireOwner, wrap(async (req, res) => {

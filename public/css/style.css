@@ -288,6 +288,45 @@ img { max-width: 100%; }
   font-size: 9px; font-weight: 800; padding: 1px 5px; text-transform: uppercase;
 }
 .variant-main input[data-vstock] { flex: 1; max-width: 90px; }
+
+/* Кнопка обрезки на миниатюре в редакторе */
+.pimg .ccrop {
+  position: absolute; left: -7px; top: -7px;
+  width: 22px; height: 22px; border-radius: 50%;
+  border: 1px solid var(--ink); background: var(--card);
+  font-size: 11px; line-height: 1; cursor: pointer;
+  display: grid; place-items: center; padding: 0;
+}
+.pimg .ccrop:hover { background: var(--accent-soft); }
+
+/* Редактор обрезки */
+.crop-ratios { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 14px; }
+.crop-stage {
+  position: relative; display: inline-block; max-width: 100%;
+  line-height: 0; user-select: none; touch-action: none;
+  border: var(--bw) solid var(--line); border-radius: var(--radius-sm); overflow: hidden;
+  background: var(--paper);
+}
+.crop-stage img { max-width: 100%; max-height: 55dvh; display: block; }
+.crop-box {
+  position: absolute; box-sizing: border-box;
+  border: 2px solid #fff;
+  box-shadow: 0 0 0 9999px rgba(20, 24, 36, .55);
+  cursor: move; touch-action: none;
+}
+.crop-box i {
+  position: absolute; width: 16px; height: 16px;
+  background: #fff; border: 1.5px solid var(--ink); border-radius: 4px;
+}
+.crop-box i[data-hnd="nw"] { left: -9px; top: -9px; cursor: nwse-resize; }
+.crop-box i[data-hnd="ne"] { right: -9px; top: -9px; cursor: nesw-resize; }
+.crop-box i[data-hnd="sw"] { left: -9px; bottom: -9px; cursor: nesw-resize; }
+.crop-box i[data-hnd="se"] { right: -9px; bottom: -9px; cursor: nwse-resize; }
+
+@media (max-width: 640px) {
+  .crop-stage img { max-height: 42dvh; }
+  .crop-ratios .btn { flex: 1; }
+}
 .inactive-tag {
   font-size: 11px; color: var(--warn); background: var(--warn-soft);
   border: 1px solid var(--warn); border-radius: 999px; padding: 2px 9px;

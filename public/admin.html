@@ -84,6 +84,9 @@
 
         <label>Фото модели (до 10)</label>
         <input type="file" id="pImages" accept="image/*" multiple />
+        <label class="metal-toggle" style="margin:10px 0 0;">
+          <input type="checkbox" id="pSquare" /> ⬛ Обрезать новые фото в квадрат (1:1)
+        </label>
         <div class="hint" id="imagesHint">Можно выбрать несколько файлов сразу. Первое фото — обложка.</div>
         <div id="currentImages" class="pimgs"></div>
 
@@ -152,6 +155,33 @@
       <div class="actions">
         <button class="btn ghost" data-passclose>Отмена</button>
         <button class="btn primary" id="savePassBtn">Сохранить</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Модалка обрезки фото -->
+  <div class="modal-backdrop" id="cropModal">
+    <div class="modal wide">
+      <header><h2>Обрезка фото</h2><button class="x" data-cropclose>&times;</button></header>
+      <div class="content">
+        <div class="crop-ratios">
+          <button type="button" class="btn small" data-ratio="1">1:1 квадрат</button>
+          <button type="button" class="btn small" data-ratio="1.3333">4:3</button>
+          <button type="button" class="btn small" data-ratio="0.75">3:4</button>
+          <button type="button" class="btn small" data-ratio="0">Свободно</button>
+        </div>
+        <div class="crop-stage" id="cropStage">
+          <img id="cropImg" alt="" />
+          <div class="crop-box" id="cropBox">
+            <i data-hnd="nw"></i><i data-hnd="ne"></i><i data-hnd="sw"></i><i data-hnd="se"></i>
+          </div>
+        </div>
+        <div class="hint">Потяните за рамку или её углы. Кнопки сверху задают пропорции.</div>
+        <div class="msg-error" id="cropError"></div>
+      </div>
+      <div class="actions">
+        <button class="btn ghost" data-cropclose>Отмена</button>
+        <button class="btn primary" id="cropApply">Обрезать</button>
       </div>
     </div>
   </div>
