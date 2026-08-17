@@ -259,10 +259,13 @@ h4 .sw, .notice .sw { margin-right: 5px; }
 /* Галерея в модалке заказа */
 .gallery { margin-top: 4px; }
 .gal-main {
-  width: 100%; aspect-ratio: 4 / 3; object-fit: cover;
+  width: 100%; aspect-ratio: 4 / 3;
+  /* contain — фото произвольных пропорций не обрезаются */
+  object-fit: contain; background: var(--paper);
   border: var(--bw) solid var(--line); border-radius: var(--radius-sm);
   display: block;
 }
+img { max-width: 100%; }
 .gal-thumbs { display: flex; gap: 8px; margin-top: 8px; overflow-x: auto; padding-bottom: 4px; }
 .gal-thumbs img {
   width: 58px; height: 58px; object-fit: cover; flex: none;
@@ -587,6 +590,13 @@ input[type="color"]::-webkit-color-swatch { border: none; border-radius: 6px; }
   .order-item .right { justify-content: space-between; }
   .chat-messages { min-height: 200px; padding: 13px; }
   .bubble { max-width: 88%; font-size: 14px; }
+
+  /* Фото в шторке заказа: не выше ~40% экрана, форма остаётся видна */
+  .gal-main { aspect-ratio: auto; height: 38dvh; }
+  .gal-thumbs img { width: 50px; height: 50px; }
+  /* Карточки каталога на телефоне: фото чуть ниже, чтобы больше влезало */
+  .card .thumb { aspect-ratio: 1 / 1; }
+  .thumb .snav { width: 30px; height: 30px; font-size: 17px; }
   .chat-input { padding: 10px; gap: 8px; }
   .chat-input .btn { padding: 10px 14px; }
 

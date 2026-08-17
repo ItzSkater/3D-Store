@@ -6,6 +6,7 @@ const express = require('express');
 const cookieParser = require('cookie-parser');
 const bcrypt = require('bcryptjs');
 const multer = require('multer');
+const sharp = require('sharp');
 
 const db = require('./db');
 const notify = require('./notify');
@@ -32,13 +33,51 @@ const upload = multer({
   },
 });
 
+// Приводим фото к WebP: поворот по EXIF (телефонные снимки), ужатие до
+// 1600px по большей стороне, качество 82. Экономит трафик и ускоряет
+// загрузку на телефонах.
+async function toWebp(buffer) {
+  return sharp(buffer, { failOn: 'none' })
+    .rotate()
+    .resize({ width: 1600, height: 1600, fit: 'inside', withoutEnlargement: true })
+    .webp({ quality: 82 })
+    .toBuffer();
+}
+
 async function saveImage(file) {
   if (!file) return '';
-  const res = await db.run('INSERT INTO images (mime, data) VALUES (?, ?)', [
-    file.mimetype || 'image/jpeg',
-    file.buffer,
-  ]);
+  let data = file.buffer;
+  let mime = file.mimetype || 'image/jpeg';
+  try {
+    data = await toWebp(file.buffer);
+    mime = 'image/webp';
+  } catch (e) {
+    // Если конвертация не удалась (битый файл и т.п.) — сохраняем как есть
+    console.warn('[3D-Store] Не удалось сконвертировать фото в WebP:', e.message);
+  }
+  const res = await db.run('INSERT INTO images (mime, data) VALUES (?, ?)', [mime, data]);
   return String(Number(res.lastInsertRowid));
+}
+
+// Фоновая конвертация уже загруженных фото в WebP (разово при старте).
+async function migrateImagesToWebp() {
+  const rows = await db.all("SELECT id FROM images WHERE mime != 'image/webp'");
+  if (!rows.length) return;
+  console.log(`[3D-Store] Конвертирую ${rows.length} старых фото в WebP…`);
+  let done = 0;
+  for (const r of rows) {
+    try {
+      const img = await db.get('SELECT data FROM images WHERE id = ?', [r.id]);
+      if (!img) continue;
+      const buf = Buffer.isBuffer(img.data) ? img.data : Buffer.from(img.data);
+      const webp = await toWebp(buf);
+      await db.run("UPDATE images SET data = ?, mime = 'image/webp' WHERE id = ?", [webp, r.id]);
+      done++;
+    } catch (e) {
+      console.warn(`[3D-Store] Фото #${r.id} не сконвертировано: ${e.message}`);
+    }
+  }
+  console.log(`[3D-Store] Конвертация завершена: ${done}/${rows.length} фото теперь в WebP.`);
 }
 async function deleteImage(imageId) {
   if (!imageId) return;
@@ -653,6 +692,8 @@ async function main() {
   // Telegram-бот (магазин для клиентов + команды владельца).
   // Запускается, только если задан токен; сам дождётся его, если добавят позже.
   bot.startBot();
+  // Разовая фоновая конвертация старых фото в WebP — не блокирует запуск.
+  migrateImagesToWebp().catch((e) => console.warn('[3D-Store] Миграция фото:', e.message));
 }
 
 main().catch((e) => {
