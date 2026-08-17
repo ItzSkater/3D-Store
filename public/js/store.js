@@ -46,6 +46,7 @@ async function loadCatalog() {
       return;
     }
     catalogEl.innerHTML = products.map(renderCard).join('');
+    catalogEl.querySelectorAll('.thumb[data-imgs]').forEach(initSlider);
     catalogEl.querySelectorAll('[data-order]').forEach((btn) => {
       btn.addEventListener('click', () => {
         const product = products.find((p) => p.id == btn.dataset.order);
@@ -59,11 +60,15 @@ async function loadCatalog() {
 }
 
 function renderCard(p) {
-  const cover = (p.images && p.images[0]) || p.image;
-  const img = cover
-    ? `<img src="/img/${esc(cover)}" alt="${esc(p.name)}" loading="lazy" />${
-        p.images && p.images.length > 1 ? `<span class="photo-count">📷 ${p.images.length}</span>` : ''
-      }`
+  const imgs = p.images && p.images.length ? p.images : p.image ? [p.image] : [];
+  const multi = imgs.length > 1;
+  const img = imgs.length
+    ? `<img src="/img/${esc(imgs[0])}" alt="${esc(p.name)}" loading="lazy" class="slide" />` +
+      (multi
+        ? `<button type="button" class="snav prev" data-nav="-1" aria-label="Предыдущее фото">‹</button>` +
+          `<button type="button" class="snav next" data-nav="1" aria-label="Следующее фото">›</button>` +
+          `<div class="sdots">${imgs.map((_, i) => `<i class="${i === 0 ? 'on' : ''}"></i>`).join('')}</div>`
+        : '')
     : '<div class="placeholder">🧊</div>';
   const chips = (p.variants || [])
     .slice(0, 4)
@@ -72,7 +77,7 @@ function renderCard(p) {
   const more = (p.variants || []).length > 4 ? `<span class="chip">+${p.variants.length - 4}</span>` : '';
   return `
     <div class="card">
-      <div class="thumb">${img}</div>
+      <div class="thumb" data-imgs='${esc(JSON.stringify(imgs))}'>${img}</div>
       <div class="body">
         <h3>${esc(p.name)}</h3>
         <p class="desc">${esc(p.description) || 'Модель для 3D-печати'}</p>
@@ -81,6 +86,46 @@ function renderCard(p) {
         <button class="btn primary" data-order="${p.id}">Заказать</button>
       </div>
     </div>`;
+}
+
+// Листалка фото на карточке каталога: стрелки, точки, свайп на телефоне.
+// Заказ при этом не открывается (клики по стрелкам не всплывают).
+function initSlider(thumb) {
+  let imgs = [];
+  try {
+    imgs = JSON.parse(thumb.dataset.imgs || '[]');
+  } catch {
+    imgs = [];
+  }
+  if (imgs.length < 2) return;
+  let idx = 0;
+  const img = thumb.querySelector('img.slide');
+  const dots = thumb.querySelectorAll('.sdots i');
+  function show(i) {
+    idx = (i + imgs.length) % imgs.length;
+    img.src = '/img/' + imgs[idx];
+    dots.forEach((d, k) => d.classList.toggle('on', k === idx));
+  }
+  thumb.querySelectorAll('.snav').forEach((b) =>
+    b.addEventListener('click', (e) => {
+      e.stopPropagation();
+      e.preventDefault();
+      show(idx + Number(b.dataset.nav));
+    })
+  );
+  // Свайп пальцем
+  let x0 = null;
+  thumb.addEventListener('touchstart', (e) => { x0 = e.touches[0].clientX; }, { passive: true });
+  thumb.addEventListener(
+    'touchend',
+    (e) => {
+      if (x0 === null) return;
+      const dx = e.changedTouches[0].clientX - x0;
+      if (Math.abs(dx) > 40) show(idx + (dx < 0 ? 1 : -1));
+      x0 = null;
+    },
+    { passive: true }
+  );
 }
 
 function galleryHtml(p) {
