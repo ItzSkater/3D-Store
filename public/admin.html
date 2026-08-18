@@ -15,6 +15,7 @@
       <a class="brand" href="/"><span class="logo">🧊</span><span>3D-Store · Владелец</span></a>
       <nav class="nav-links" id="ownerNav" style="display:none;">
         <a class="btn ghost small" href="/">На сайт</a>
+        <button class="btn ghost small" id="discountBtn">🎁 Скидки</button>
         <button class="btn ghost small" id="notifyBtn">🔔 Уведомления</button>
         <button class="btn ghost small" id="changePassBtn">Сменить пароль</button>
         <button class="btn small" id="ownerLogout">Выйти</button>
@@ -86,11 +87,11 @@
         </div>
 
         <label>Фото модели (до 10)</label>
-        <input type="file" id="pImages" accept="image/*" multiple />
+        <input type="file" id="pImages" accept="image/*,video/mp4,video/quicktime" multiple />
         <label class="metal-toggle" style="margin:10px 0 0;">
           <input type="checkbox" id="pSquare" /> ⬛ Обрезать новые фото в квадрат (1:1)
         </label>
-        <div class="hint" id="imagesHint">Можно выбрать несколько файлов сразу. Первое фото — обложка.</div>
+        <div class="hint" id="imagesHint">Можно выбрать несколько файлов сразу. Первое фото — обложка. Поддерживаются GIF и короткие видео (Live Photo).</div>
         <div id="currentImages" class="pimgs"></div>
 
         <label>Варианты филамента</label>
@@ -159,6 +160,40 @@
         <button class="btn ghost" data-passclose>Отмена</button>
         <button class="btn primary" id="savePassBtn">Сохранить</button>
       </div>
+    </div>
+  </div>
+
+  <!-- Модалка скидок -->
+  <div class="modal-backdrop" id="discountModal">
+    <div class="modal wide">
+      <header><h2>🎁 Скидки за покупку</h2><button class="x" data-discclose>&times;</button></header>
+      <div class="content">
+        <div class="notice">
+          Правило работает так: если клиент <b>уже покупал</b> первую модель,
+          то вторую он видит и заказывает со скидкой — и на сайте, и в боте.
+        </div>
+
+        <label>Кто купил модель</label>
+        <select id="dTrigger"></select>
+
+        <div class="row">
+          <div>
+            <label>Получает скидку на</label>
+            <select id="dTarget"></select>
+          </div>
+          <div>
+            <label>Скидка, %</label>
+            <input type="number" id="dPercent" min="1" max="100" step="1" placeholder="15" />
+          </div>
+        </div>
+
+        <button class="btn primary" id="dAdd" style="margin-top:14px;">Добавить правило</button>
+        <div class="msg-error" id="dError"></div>
+
+        <label style="margin-top:18px;">Действующие правила</label>
+        <div id="dList" class="orders-list" style="padding:0;"></div>
+      </div>
+      <div class="actions"><button class="btn ghost" data-discclose>Закрыть</button></div>
     </div>
   </div>
 

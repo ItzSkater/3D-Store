@@ -107,9 +107,13 @@ async function loadProducts() {
 }
 
 function renderAdminCard(p) {
-  const cover = (p.images && p.images[0]) || p.image;
-  const img = cover
-    ? `<img src="/img/${esc(cover)}" alt="" />${p.images && p.images.length > 1 ? `<span class="photo-count">📷 ${p.images.length}</span>` : ''}`
+  const media = (p.images && p.images.length) ? p.images : (p.image ? [{ id: p.image, kind: 'image' }] : []);
+  const first = media[0];
+  const img = first
+    ? (first.kind === 'video'
+        ? `<video src="/img/${esc(first.id)}" muted loop playsinline autoplay></video>`
+        : `<img src="/img/${esc(first.id)}" alt="" />`) +
+      (media.length > 1 ? `<span class="photo-count">📷 ${media.length}</span>` : '')
     : '<div class="placeholder">🧊</div>';
   const chips = (p.variants || [])
     .map((v) => {
@@ -222,7 +226,7 @@ let editorImages = []; // текущий список фото открытой 
 function renderCurrentImages(images) {
   if (images) editorImages = images.slice();
   const box = $('currentImages');
-  const list = editorImages.filter((id) => !removeImages.includes(id));
+  const list = editorImages.filter((m) => !removeImages.includes(m.id));
   if (!list.length) {
     box.innerHTML = '';
     $('imagesHint').textContent = 'Можно выбрать несколько файлов сразу. Первое фото — обложка.';
@@ -231,11 +235,13 @@ function renderCurrentImages(images) {
   $('imagesHint').textContent = `Фото: ${list.length} из 10. Первое — обложка. ✂️ — обрезать, ✕ — убрать.`;
   box.innerHTML = list
     .map(
-      (id, i) => `
+      (m, i) => `
       <span class="pimg${i === 0 ? ' cover' : ''}">
-        <img src="/img/${esc(id)}" alt="" />
-        <button type="button" class="cdel" data-rm="${esc(id)}" title="Удалить фото">×</button>
-        <button type="button" class="ccrop" data-crop="${esc(id)}" title="Обрезать фото">✂️</button>
+        ${m.kind === 'video'
+          ? `<video src="/img/${esc(m.id)}" muted loop playsinline autoplay></video>`
+          : `<img src="/img/${esc(m.id)}" alt="" />`}
+        <button type="button" class="cdel" data-rm="${esc(m.id)}" title="Удалить">×</button>
+        ${m.kind === 'video' ? '' : `<button type="button" class="ccrop" data-crop="${esc(m.id)}" title="Обрезать фото">✂️</button>`}
         ${i === 0 ? '<b class="cover-tag">обложка</b>' : ''}
       </span>`
     )
@@ -411,7 +417,7 @@ $('cropApply').addEventListener('click', async () => {
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || 'Ошибка');
     // Подменяем id фото в списке редактора
-    editorImages = editorImages.map((id) => (id === oldId ? data.image_id : id));
+    editorImages = editorImages.map((m) => (m.id === oldId ? { id: data.image_id, kind: 'image' } : m));
     renderCurrentImages();
     closeCrop();
     loadProducts();
@@ -706,6 +712,75 @@ $('tgClearBtn').addEventListener('click', async () => {
   $('tgToken').value = ''; $('tgChatId').value = '';
   $('notifyOk').textContent = 'Уведомления отключены.';
   openNotifyRefresh();
+});
+
+// ---------- Скидки за покупку ----------
+const discountModal = $('discountModal');
+
+async function openDiscounts() {
+  $('dError').textContent = '';
+  $('dPercent').value = '';
+  const res = await fetch('/api/products');
+  const products = res.ok ? await res.json() : [];
+  const opts = products.map((p) => `<option value="${p.id}">${esc(p.name)}</option>`).join('');
+  $('dTrigger').innerHTML = opts;
+  $('dTarget').innerHTML = opts;
+  if (products[1]) $('dTarget').value = products[1].id;
+  await loadDiscounts();
+  discountModal.classList.add('open');
+}
+
+async function loadDiscounts() {
+  const res = await fetch('/api/discounts');
+  if (!res.ok) return;
+  const list = await res.json();
+  const box = $('dList');
+  if (!list.length) {
+    box.innerHTML = '<div class="empty" style="padding:26px;">Правил пока нет.</div>';
+    return;
+  }
+  box.innerHTML = list
+    .map(
+      (d) => `
+      <div class="order-item">
+        <div class="info">
+          <h4>Купил «${esc(d.trigger_name || '—')}» → скидка ${d.percent}%</h4>
+          <div class="sub">на модель «${esc(d.target_name || '—')}»</div>
+        </div>
+        <div class="right"><button class="btn danger small" data-ddel="${d.id}">Удалить</button></div>
+      </div>`
+    )
+    .join('');
+  box.querySelectorAll('[data-ddel]').forEach((b) =>
+    b.addEventListener('click', async () => {
+      if (!confirm('Удалить правило?')) return;
+      await fetch('/api/discounts/' + b.dataset.ddel, { method: 'DELETE' });
+      loadDiscounts();
+    })
+  );
+}
+
+$('discountBtn').addEventListener('click', openDiscounts);
+discountModal.querySelectorAll('[data-discclose]').forEach((el) =>
+  el.addEventListener('click', () => discountModal.classList.remove('open'))
+);
+discountModal.addEventListener('click', (e) => { if (e.target === discountModal) discountModal.classList.remove('open'); });
+
+$('dAdd').addEventListener('click', async () => {
+  $('dError').textContent = '';
+  const res = await fetch('/api/discounts', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      trigger_product_id: $('dTrigger').value,
+      target_product_id: $('dTarget').value,
+      percent: $('dPercent').value,
+    }),
+  });
+  const data = await res.json();
+  if (!res.ok) { $('dError').textContent = data.error || 'Ошибка'; return; }
+  $('dPercent').value = '';
+  loadDiscounts();
 });
 
 boot();

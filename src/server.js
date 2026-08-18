@@ -24,23 +24,43 @@ app.use(cookieParser());
 const wrap = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
 
 // ------- Загрузка изображений (в память, затем в БД) -------
+const VIDEO_MIMES = ['video/mp4', 'video/quicktime', 'video/webm'];
+
 const upload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 8 * 1024 * 1024 }, // 8 МБ
+  limits: { fileSize: 25 * 1024 * 1024 }, // 25 МБ (видео Live Photo тяжелее фото)
   fileFilter: (req, file, cb) => {
-    if (/^image\//.test(file.mimetype)) cb(null, true);
-    else cb(new Error('Разрешены только изображения'));
+    const m = String(file.mimetype || '').toLowerCase();
+    if (/^image\//.test(m) || VIDEO_MIMES.includes(m)) cb(null, true);
+    else cb(new Error('Разрешены изображения, GIF и короткие видео'));
   },
 });
+
+function isVideoMime(mime) {
+  return VIDEO_MIMES.includes(String(mime || '').toLowerCase());
+}
 
 // Приводим фото к WebP: поворот по EXIF (телефонные снимки), ужатие до
 // 1600px по большей стороне, качество 82. Экономит трафик и ускоряет
 // загрузку на телефонах.
 async function toWebp(buffer, { square = false } = {}) {
-  const img = sharp(buffer, { failOn: 'none' }).rotate();
+  // Анимированные GIF конвертируем со всеми кадрами — получится живая
+  // картинка в WebP. Поворот по EXIF для анимаций не применяем: он ломает
+  // покадровую раскладку.
+  let animated = false;
+  try {
+    const meta = await sharp(buffer, { failOn: 'none' }).metadata();
+    animated = (meta.pages || 1) > 1;
+  } catch {
+    animated = false;
+  }
+
+  const img = sharp(buffer, { failOn: 'none', animated });
+  if (!animated) img.rotate();
+
   if (square) {
     // Кадрируем по центру значимой части снимка
-    img.resize({ width: 1200, height: 1200, fit: 'cover', position: 'attention' });
+    img.resize({ width: 1200, height: 1200, fit: 'cover', position: animated ? 'centre' : 'attention' });
   } else {
     img.resize({ width: 1600, height: 1600, fit: 'inside', withoutEnlargement: true });
   }
@@ -51,6 +71,14 @@ async function saveImage(file, opts = {}) {
   if (!file) return '';
   let data = file.buffer;
   let mime = file.mimetype || 'image/jpeg';
+
+  if (isVideoMime(mime)) {
+    // Видео (в том числе ролик из Live Photo) храним как есть — перекодировать
+    // нечем, а браузеры и так проигрывают mp4/mov.
+    const res = await db.run('INSERT INTO images (mime, data) VALUES (?, ?)', [mime, data]);
+    return String(Number(res.lastInsertRowid));
+  }
+
   try {
     data = await toWebp(file.buffer, opts);
     mime = 'image/webp';
@@ -64,7 +92,9 @@ async function saveImage(file, opts = {}) {
 
 // Фоновая конвертация уже загруженных фото в WebP (разово при старте).
 async function migrateImagesToWebp() {
-  const rows = await db.all("SELECT id FROM images WHERE mime != 'image/webp'");
+  const rows = await db.all(
+    "SELECT id FROM images WHERE mime != 'image/webp' AND mime NOT LIKE 'video/%'"
+  );
   if (!rows.length) return;
   console.log(`[3D-Store] Конвертирую ${rows.length} старых фото в WebP…`);
   let done = 0;
@@ -320,27 +350,63 @@ async function attachVariants(product) {
     'SELECT id, name, extra_price, color, stock FROM variants WHERE product_id = ? ORDER BY id',
     [product.id]
   );
+  // Тянем mime, чтобы фронт знал, что рисовать: картинку или видео
   const imgRows = await db.all(
-    'SELECT image_id FROM product_images WHERE product_id = ? ORDER BY pos, id',
+    `SELECT pi.image_id, i.mime
+       FROM product_images pi LEFT JOIN images i ON i.id = pi.image_id
+      WHERE pi.product_id = ? ORDER BY pi.pos, pi.id`,
     [product.id]
   );
-  let images = imgRows.map((r) => String(r.image_id));
+  let images = imgRows.map((r) => ({
+    id: String(r.image_id),
+    kind: isVideoMime(r.mime) ? 'video' : 'image',
+  }));
   // Старые записи: одно фото лежало прямо в products.image
-  if (!images.length && product.image) images = [String(product.image)];
+  if (!images.length && product.image) images = [{ id: String(product.image), kind: 'image' }];
   return { ...product, variants, images };
 }
 
 // Синхронизирует обложку (products.image) с первым фото галереи —
 // её используют старые пути (бот, карточки).
 async function syncCover(productId) {
+  // Обложка — первое именно ИЗОБРАЖЕНИЕ: его показывают карточки и шлёт бот
   const first = await db.get(
-    'SELECT image_id FROM product_images WHERE product_id = ? ORDER BY pos, id LIMIT 1',
+    `SELECT pi.image_id
+       FROM product_images pi JOIN images i ON i.id = pi.image_id
+      WHERE pi.product_id = ? AND i.mime NOT LIKE 'video/%'
+      ORDER BY pi.pos, pi.id LIMIT 1`,
     [productId]
   );
   await db.run('UPDATE products SET image = ? WHERE id = ?', [first ? String(first.image_id) : '', productId]);
 }
 
 const MAX_IMAGES = 10;
+
+// Скидка клиенту на модель: действует, если он раньше уже покупал
+// «модель-триггер» (заказ не отменён). Берём лучшую из подходящих.
+async function discountFor(userId, productId) {
+  if (!userId || !productId) return 0;
+  const row = await db.get(
+    `SELECT MAX(d.percent) AS p
+       FROM discounts d
+      WHERE d.target_product_id = ?
+        AND EXISTS (
+          SELECT 1 FROM orders o
+           WHERE o.user_id = ?
+             AND o.product_id = d.trigger_product_id
+             AND o.status != 'cancelled'
+        )`,
+    [productId, userId]
+  );
+  const p = row && row.p ? Number(row.p) : 0;
+  return Math.min(Math.max(Math.round(p), 0), 100);
+}
+
+// Цена со скидкой
+function applyDiscount(price, percent) {
+  if (!percent) return price;
+  return Math.round(price * (100 - percent)) / 100;
+}
 
 // Нормализация цвета варианта: {"c":["#hex",...],"m":bool} или пусто.
 // До 4 цветов (2+ = градиент), m — металлик.
@@ -369,6 +435,11 @@ app.get('/api/products', wrap(async (req, res) => {
     ? await db.all('SELECT * FROM products ORDER BY created_at DESC')
     : await db.all('SELECT * FROM products WHERE is_active = 1 ORDER BY created_at DESC');
   const result = await Promise.all(rows.map(attachVariants));
+  // Персональные скидки: считаем для вошедшего клиента
+  const u = await currentUser(req);
+  if (u) {
+    for (const p of result) p.discount = await discountFor(u.id, p.id);
+  }
   res.json(result);
 }));
 
@@ -508,6 +579,50 @@ app.put('/api/products/:id', requireOwner, upload.array('images', MAX_IMAGES), w
   res.json(await attachVariants(await db.get('SELECT * FROM products WHERE id = ?', [p.id])));
 }));
 
+// --- Скидки (владелец) ---
+app.get('/api/discounts', requireOwner, wrap(async (req, res) => {
+  const rows = await db.all(
+    `SELECT d.*, tp.name AS trigger_name, gp.name AS target_name
+       FROM discounts d
+       LEFT JOIN products tp ON tp.id = d.trigger_product_id
+       LEFT JOIN products gp ON gp.id = d.target_product_id
+      ORDER BY d.id DESC`
+  );
+  res.json(rows);
+}));
+
+app.post('/api/discounts', requireOwner, wrap(async (req, res) => {
+  const trigger = parseInt(req.body.trigger_product_id, 10);
+  const target = parseInt(req.body.target_product_id, 10);
+  const percent = Math.round(Number(req.body.percent));
+  if (!trigger || !target) return res.status(400).json({ error: 'Выберите обе модели' });
+  if (trigger === target) return res.status(400).json({ error: 'Модели должны быть разными' });
+  if (!(percent > 0 && percent <= 100)) return res.status(400).json({ error: 'Процент должен быть от 1 до 100' });
+
+  const a = await db.get('SELECT id FROM products WHERE id = ?', [trigger]);
+  const b = await db.get('SELECT id FROM products WHERE id = ?', [target]);
+  if (!a || !b) return res.status(400).json({ error: 'Модель не найдена' });
+
+  const dup = await db.get(
+    'SELECT id FROM discounts WHERE trigger_product_id = ? AND target_product_id = ?',
+    [trigger, target]
+  );
+  if (dup) {
+    await db.run('UPDATE discounts SET percent = ? WHERE id = ?', [percent, dup.id]);
+    return res.json({ ok: true, id: dup.id, updated: true });
+  }
+  const info = await db.run(
+    'INSERT INTO discounts (trigger_product_id, target_product_id, percent) VALUES (?, ?, ?)',
+    [trigger, target, percent]
+  );
+  res.json({ ok: true, id: Number(info.lastInsertRowid) });
+}));
+
+app.delete('/api/discounts/:id', requireOwner, wrap(async (req, res) => {
+  await db.run('DELETE FROM discounts WHERE id = ?', [req.params.id]);
+  res.json({ ok: true });
+}));
+
 // Обрезка фото модели. Координаты — доли от 0 до 1 относительно снимка.
 // Создаём новое изображение и подменяем им старое в галерее: URL меняется,
 // поэтому браузер гарантированно покажет обрезанный вариант, а не кэш.
@@ -520,8 +635,9 @@ app.post('/api/products/:pid/images/:imgId/crop', requireOwner, wrap(async (req,
   const link = await db.get('SELECT * FROM product_images WHERE product_id = ? AND image_id = ?', [p.id, oldId]);
   if (!link) return res.status(404).json({ error: 'Фото не найдено' });
 
-  const src = await db.get('SELECT data FROM images WHERE id = ?', [oldId]);
+  const src = await db.get('SELECT data, mime FROM images WHERE id = ?', [oldId]);
   if (!src) return res.status(404).json({ error: 'Фото не найдено' });
+  if (isVideoMime(src.mime)) return res.status(400).json({ error: 'Видео обрезать нельзя' });
 
   const num = (v) => (Number.isFinite(Number(v)) ? Number(v) : NaN);
   let { x, y, w, h } = { x: num(req.body.x), y: num(req.body.y), w: num(req.body.w), h: num(req.body.h) };
@@ -582,6 +698,7 @@ function serializeOrder(o) {
     product_name: o.product_name,
     variant_name: o.variant_name,
     variant_color: o.variant_color || null,
+    discount_percent: o.discount_percent || 0,
     unit_price: o.unit_price,
     quantity: o.quantity,
     total: o.total,
@@ -605,6 +722,8 @@ app.post('/api/orders', requireUser, wrap(async (req, res) => {
     variant = await db.get('SELECT * FROM variants WHERE id = ? AND product_id = ?', [variant_id, product.id]);
   }
   const qty = Math.max(1, parseInt(quantity, 10) || 1);
+  // Персональная скидка: считаем на сервере, значению с клиента не доверяем
+  const percent = await discountFor(req.user.id, product.id);
 
   // Проверка остатка (если он отслеживается у варианта)
   if (variant && variant.stock !== null && variant.stock !== undefined) {
@@ -613,14 +732,14 @@ app.post('/api/orders', requireUser, wrap(async (req, res) => {
       return res.status(400).json({ error: `В наличии только ${variant.stock} шт этого цвета` });
     }
   }
-  const unit = product.price + (variant ? variant.extra_price : 0);
+  const unit = applyDiscount(product.price + (variant ? variant.extra_price : 0), percent);
   const total = unit * qty;
   const token = newToken();
 
   const info = await db.run(
     `INSERT INTO orders
-       (token, user_id, product_id, variant_id, product_name, variant_name, unit_price, quantity, total, customer_name, phone, address)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       (token, user_id, product_id, variant_id, product_name, variant_name, unit_price, quantity, total, customer_name, phone, address, discount_percent)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       token,
       req.user.id,
@@ -634,6 +753,7 @@ app.post('/api/orders', requireUser, wrap(async (req, res) => {
       name,
       String(phone || '').trim() || req.user.phone || '',
       String(address || '').trim(),
+      percent,
     ]
   );
 

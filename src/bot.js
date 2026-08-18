@@ -22,6 +22,23 @@ let running = false;
 let stopped = false;
 let offset = 0;
 
+// Скидка клиенту на модель: действует, если он уже покупал модель-триггер.
+async function discountFor(userId, productId) {
+  if (!userId || !productId) return 0;
+  const row = await db.get(
+    `SELECT MAX(d.percent) AS p
+       FROM discounts d
+      WHERE d.target_product_id = ?
+        AND EXISTS (
+          SELECT 1 FROM orders o
+           WHERE o.user_id = ? AND o.product_id = d.trigger_product_id AND o.status != 'cancelled'
+        )`,
+    [productId, userId]
+  );
+  const p = row && row.p ? Number(row.p) : 0;
+  return Math.min(Math.max(Math.round(p), 0), 100);
+}
+
 // ---------------- состояние диалога ----------------
 async function getState(chatId) {
   const row = await db.get('SELECT state, data FROM tg_state WHERE chat_id = ?', [String(chatId)]);
@@ -217,7 +234,8 @@ async function createOrder(chatId, from) {
     return tg.sendMessage(chatId, 'Модель уже недоступна.', mainMenu());
   }
   const v = data.variant_id ? await db.get('SELECT * FROM variants WHERE id = ?', [data.variant_id]) : null;
-  const unit = p.price + (v ? v.extra_price : 0);
+  const percent = await discountFor(user.id, p.id);
+  const unit = Math.round((p.price + (v ? v.extra_price : 0)) * (100 - percent)) / 100;
   const qty = Math.max(1, parseInt(data.quantity, 10) || 1);
 
   // Проверка остатка (если отслеживается)
@@ -237,8 +255,8 @@ async function createOrder(chatId, from) {
 
   const info = await db.run(
     `INSERT INTO orders
-       (token, user_id, product_id, variant_id, product_name, variant_name, unit_price, quantity, total, customer_name, phone, address)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       (token, user_id, product_id, variant_id, product_name, variant_name, unit_price, quantity, total, customer_name, phone, address, discount_percent)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       token,
       user.id,
@@ -252,6 +270,7 @@ async function createOrder(chatId, from) {
       data.customer_name || user.display_name || user.username,
       data.phone || '',
       data.address || '',
+      percent,
     ]
   );
   const orderId = Number(info.lastInsertRowid);
@@ -278,6 +297,7 @@ async function createOrder(chatId, from) {
     `✅ <b>Заказ #${orderId} принят!</b>\n\n` +
       `<b>${esc(p.name)}</b>${v ? ' · ' + esc(v.name) : ''}\n` +
       `${qty} шт · Итого <b>${money(total)}</b>\n` +
+      (percent ? `🎁 Ваша скидка: <b>${percent}%</b>\n` : '') +
       '💵 Оплата при получении\n\n' +
       'Продавец скоро свяжется с вами. Здесь же можно написать ему сообщение.',
     tg.inlineKeyboard([

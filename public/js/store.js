@@ -3,6 +3,7 @@
 const catalogEl = document.getElementById('catalog');
 const modal = document.getElementById('orderModal');
 let current = { product: null };
+let lastProducts = [];
 
 function money(n) {
   return new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 0 }).format(Math.round(n)) + ' ₽';
@@ -45,13 +46,18 @@ async function loadCatalog() {
       catalogEl.innerHTML = '<div class="empty">Пока нет доступных моделей. Загляните позже 🙂</div>';
       return;
     }
+    lastProducts = products;
     catalogEl.innerHTML = products.map(renderCard).join('');
-    catalogEl.querySelectorAll('.thumb[data-imgs]').forEach(initSlider);
+    catalogEl.querySelectorAll('.card .thumb').forEach(initSlider);
     catalogEl.querySelectorAll('[data-order]').forEach((btn) => {
       btn.addEventListener('click', () => {
-        const product = products.find((p) => p.id == btn.dataset.order);
+        const id = btn.dataset.order;
         // Требуем вход в аккаунт перед заказом
-        window.Auth.require(() => openOrder(product));
+        window.Auth.require(() => {
+          // после входа каталог уже перезагружен — берём цену с учётом скидки
+          const fresh = lastProducts.find((p) => p.id == id);
+          openOrder(fresh || products.find((p) => p.id == id));
+        });
       });
     });
   } catch (e) {
@@ -59,51 +65,63 @@ async function loadCatalog() {
   }
 }
 
+// Один слайд галереи: фото или короткое видео (Live Photo/GIF-ролик)
+function mediaHtml(m, cls) {
+  const id = esc(m.id);
+  if (m.kind === 'video') {
+    return `<video class="${cls}" src="/img/${id}" autoplay loop muted playsinline preload="metadata"></video>`;
+  }
+  return `<img class="${cls}" src="/img/${id}" alt="" loading="lazy" />`;
+}
+
 function renderCard(p) {
-  const imgs = p.images && p.images.length ? p.images : p.image ? [p.image] : [];
+  const imgs = (p.images && p.images.length ? p.images : p.image ? [{ id: p.image, kind: 'image' }] : []);
   const multi = imgs.length > 1;
-  const img = imgs.length
-    ? `<img src="/img/${esc(imgs[0])}" alt="${esc(p.name)}" loading="lazy" class="slide" />` +
+  const media = imgs.length
+    ? imgs.map((m, i) => mediaHtml(m, 'slide' + (i === 0 ? ' on' : ''))).join('') +
       (multi
         ? `<button type="button" class="snav prev" data-nav="-1" aria-label="Предыдущее фото">‹</button>` +
           `<button type="button" class="snav next" data-nav="1" aria-label="Следующее фото">›</button>` +
           `<div class="sdots">${imgs.map((_, i) => `<i class="${i === 0 ? 'on' : ''}"></i>`).join('')}</div>`
         : '')
     : '<div class="placeholder">🧊</div>';
+
   const chips = (p.variants || [])
     .slice(0, 4)
     .map((v) => `<span class="chip">${swHtml(v.color)}${esc(v.name)}</span>`)
     .join('');
   const more = (p.variants || []).length > 4 ? `<span class="chip">+${p.variants.length - 4}</span>` : '';
+
+  // Персональная скидка клиента
+  const d = Number(p.discount) || 0;
+  const priceHtml = d
+    ? `<span class="old-price">${money(p.price)}</span> ${money(p.price * (100 - d) / 100)}`
+    : money(p.price);
+
   return `
     <div class="card">
-      <div class="thumb" data-imgs='${esc(JSON.stringify(imgs))}'>${img}</div>
+      <div class="thumb">${media}${d ? `<span class="sale-badge">−${d}%</span>` : ''}</div>
       <div class="body">
         <h3>${esc(p.name)}</h3>
         <p class="desc">${esc(p.description) || 'Модель для 3D-печати'}</p>
         ${chips ? `<div class="chips">${chips}${more}</div>` : ''}
-        <div class="price">${money(p.price)} <small>${p.variants && p.variants.length ? 'от базовой цены' : ''}</small></div>
+        <div class="price">${priceHtml} <small>${p.variants && p.variants.length ? 'от базовой цены' : ''}</small></div>
         <button class="btn primary" data-order="${p.id}">Заказать</button>
       </div>
     </div>`;
 }
 
-// Листалка фото на карточке каталога: стрелки, точки, свайп на телефоне.
-// Заказ при этом не открывается (клики по стрелкам не всплывают).
 function initSlider(thumb) {
-  let imgs = [];
-  try {
-    imgs = JSON.parse(thumb.dataset.imgs || '[]');
-  } catch {
-    imgs = [];
-  }
-  if (imgs.length < 2) return;
-  let idx = 0;
-  const img = thumb.querySelector('img.slide');
+  const slides = thumb.querySelectorAll('.slide');
+  if (slides.length < 2) return;
   const dots = thumb.querySelectorAll('.sdots i');
+  let idx = 0;
   function show(i) {
-    idx = (i + imgs.length) % imgs.length;
-    img.src = '/img/' + imgs[idx];
+    idx = (i + slides.length) % slides.length;
+    slides.forEach((s, k) => {
+      s.classList.toggle('on', k === idx);
+      if (s.tagName === 'VIDEO') k === idx ? s.play().catch(() => {}) : s.pause();
+    });
     dots.forEach((d, k) => d.classList.toggle('on', k === idx));
   }
   thumb.querySelectorAll('.snav').forEach((b) =>
@@ -134,10 +152,17 @@ function galleryHtml(p) {
   const thumbs =
     imgs.length > 1
       ? `<div class="gal-thumbs">${imgs
-          .map((id, i) => `<img src="/img/${esc(id)}" data-gal="${i}" class="${i === 0 ? 'active' : ''}" alt="" />`)
+          .map(
+            (m, i) =>
+              `<span class="gal-th${i === 0 ? ' active' : ''}" data-gal="${i}" data-id="${esc(m.id)}" data-kind="${m.kind}">` +
+              (m.kind === 'video'
+                ? `<video src="/img/${esc(m.id)}" muted playsinline preload="metadata"></video><i class="play">▶</i>`
+                : `<img src="/img/${esc(m.id)}" alt="" />`) +
+              `</span>`
+          )
           .join('')}</div>`
       : '';
-  return `<div class="gallery"><img class="gal-main" id="galMain" src="/img/${esc(imgs[0])}" alt="" />${thumbs}</div>`;
+  return `<div class="gallery"><div class="gal-main" id="galMain">${mediaHtml(imgs[0], 'gal-media on')}</div>${thumbs}</div>`;
 }
 
 function openOrder(product) {
@@ -148,7 +173,8 @@ function openOrder(product) {
     `<div class="notice">${esc(product.description) || 'Модель для 3D-печати'}</div>`;
   document.querySelectorAll('#orderSummary [data-gal]').forEach((t) =>
     t.addEventListener('click', () => {
-      document.getElementById('galMain').src = t.src;
+      const main = document.getElementById('galMain');
+      main.innerHTML = mediaHtml({ id: t.dataset.id, kind: t.dataset.kind }, 'gal-media on');
       document.querySelectorAll('#orderSummary [data-gal]').forEach((x) => x.classList.remove('active'));
       t.classList.add('active');
     })
@@ -221,8 +247,10 @@ function updateTotal() {
     qtyInput.value = stock;
   }
   qtyInput.max = stock !== null && stock !== undefined ? stock : '';
-  const total = (current.product.price + extra) * qty;
-  document.getElementById('totalPreview').value = money(total);
+  const d = Number(current.product.discount) || 0;
+  const unit = Math.round((current.product.price + extra) * (100 - d)) / 100;
+  const total = unit * qty;
+  document.getElementById('totalPreview').value = money(total) + (d ? ` (−${d}%)` : '');
 }
 
 async function submitOrder() {
@@ -274,6 +302,10 @@ document.getElementById('qty').addEventListener('input', updateTotal);
 document.getElementById('submitOrder').addEventListener('click', submitOrder);
 modal.querySelectorAll('[data-close]').forEach((el) => el.addEventListener('click', () => modal.classList.remove('open')));
 modal.addEventListener('click', (e) => { if (e.target === modal) modal.classList.remove('open'); });
+
+// После входа/регистрации перезагружаем каталог — появятся персональные скидки
+window.onAuthLogin = () => loadCatalog();
+window.onAuthLogout = () => loadCatalog();
 
 window.Auth.refresh();
 loadCatalog();

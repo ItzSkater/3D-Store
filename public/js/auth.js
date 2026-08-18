@@ -107,6 +107,8 @@ window.Auth = (function () {
       state.user = data.user;
       renderAuthArea();
       close();
+      // Страница может обновить данные под вошедшего клиента (напр. скидки)
+      if (typeof window.onAuthLogin === 'function') await window.onAuthLogin(state.user);
       const cb = onSuccess;
       onSuccess = null;
       if (cb) cb(state.user);

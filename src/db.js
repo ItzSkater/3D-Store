@@ -100,6 +100,14 @@ const SCHEMA = [
      user_id INTEGER NOT NULL,
      created_at TEXT NOT NULL DEFAULT (datetime('now'))
    )`,
+  // Скидки: «купил модель A — на модель B скидка N%»
+  `CREATE TABLE IF NOT EXISTS discounts (
+     id INTEGER PRIMARY KEY AUTOINCREMENT,
+     trigger_product_id INTEGER NOT NULL,
+     target_product_id INTEGER NOT NULL,
+     percent INTEGER NOT NULL,
+     created_at TEXT NOT NULL DEFAULT (datetime('now'))
+   )`,
   // Дополнительные фото модели (до 10), первая — обложка
   `CREATE TABLE IF NOT EXISTS product_images (
      id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -139,6 +147,11 @@ async function init() {
   await addColumnIfMissing('variants', 'color', "TEXT DEFAULT ''");
   // Остаток на складе: NULL = не отслеживается, число = сколько в наличии
   await addColumnIfMissing('variants', 'stock', 'INTEGER');
+  // Применённая к заказу скидка в процентах (0 — без скидки)
+  await addColumnIfMissing('orders', 'discount_percent', 'INTEGER DEFAULT 0');
+  await client.execute(
+    'CREATE INDEX IF NOT EXISTS idx_disc_target ON discounts(target_product_id)'
+  );
   await client.execute('CREATE INDEX IF NOT EXISTS idx_pimg_product ON product_images(product_id)');
   await client.execute(
     'CREATE INDEX IF NOT EXISTS idx_users_tg ON users(telegram_chat_id)'

@@ -229,6 +229,38 @@ h4 .sw, .notice .sw { margin-right: 5px; }
   font-size: 11.5px; font-weight: 800; padding: 3px 9px;
 }
 
+/* Слайды карточки: показываем только активный */
+.thumb .slide { display: none; width: 100%; height: 100%; object-fit: cover; }
+.thumb .slide.on { display: block; }
+.thumb video { width: 100%; height: 100%; object-fit: cover; }
+
+/* Бейдж скидки */
+.sale-badge {
+  position: absolute; left: 9px; top: 9px; z-index: 3;
+  background: var(--danger); color: #fff;
+  border: var(--bw) solid var(--ink); border-radius: 999px;
+  font-size: 12px; font-weight: 800; padding: 3px 10px;
+  box-shadow: 2px 2px 0 var(--ink);
+}
+.old-price { color: var(--muted); text-decoration: line-through; font-weight: 600; font-size: 16px; margin-right: 4px; }
+
+/* Видео в галерее и миниатюрах */
+.gal-main { display: grid; place-items: center; overflow: hidden; }
+.gal-media { width: 100%; height: 100%; object-fit: contain; }
+.gal-th { position: relative; display: inline-flex; flex: none; }
+.gal-th img, .gal-th video {
+  width: 58px; height: 58px; object-fit: cover;
+  border: var(--bw) solid var(--line); border-radius: 9px; cursor: pointer;
+  opacity: .55; transition: opacity .12s ease;
+}
+.gal-th:hover img, .gal-th:hover video { opacity: 1; }
+.gal-th.active img, .gal-th.active video { opacity: 1; box-shadow: 2px 2px 0 var(--accent); border-color: var(--accent); }
+.gal-th .play {
+  position: absolute; inset: 0; display: grid; place-items: center;
+  color: #fff; font-size: 15px; text-shadow: 0 1px 3px rgba(0,0,0,.8); pointer-events: none;
+}
+.pimg video { width: 74px; height: 74px; object-fit: cover; border: var(--bw) solid var(--line); border-radius: 10px; }
+
 /* Листалка фото на карточке каталога */
 .thumb .snav {
   position: absolute; top: 50%; transform: translateY(-50%);
@@ -264,20 +296,12 @@ h4 .sw, .notice .sw { margin-right: 5px; }
 .gallery { margin-top: 4px; }
 .gal-main {
   width: 100%; aspect-ratio: 4 / 3;
-  /* contain — фото произвольных пропорций не обрезаются */
-  object-fit: contain; background: var(--paper);
+  background: var(--paper);
   border: var(--bw) solid var(--line); border-radius: var(--radius-sm);
-  display: block;
 }
 img { max-width: 100%; }
 .gal-thumbs { display: flex; gap: 8px; margin-top: 8px; overflow-x: auto; padding-bottom: 4px; }
-.gal-thumbs img {
-  width: 58px; height: 58px; object-fit: cover; flex: none;
-  border: var(--bw) solid var(--line); border-radius: 9px; cursor: pointer;
-  opacity: .55; transition: opacity .12s ease, box-shadow .12s ease;
-}
-.gal-thumbs img:hover { opacity: 1; }
-.gal-thumbs img.active { opacity: 1; box-shadow: 2px 2px 0 var(--accent); border-color: var(--accent); }
+
 
 /* Фото в редакторе модели (админка) */
 .pimgs { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 10px; }
@@ -660,7 +684,7 @@ input[type="color"]::-webkit-color-swatch { border: none; border-radius: 6px; }
 
   /* Фото в шторке заказа: не выше ~40% экрана, форма остаётся видна */
   .gal-main { aspect-ratio: auto; height: 38dvh; }
-  .gal-thumbs img { width: 50px; height: 50px; }
+  .gal-th img, .gal-th video { width: 50px; height: 50px; }
   /* Карточки каталога на телефоне: фото чуть ниже, чтобы больше влезало */
   .card .thumb { aspect-ratio: 1 / 1; }
   .thumb .snav { width: 30px; height: 30px; font-size: 17px; }
