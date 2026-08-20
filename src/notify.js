@@ -47,6 +47,7 @@ async function notifyNewOrder(order) {
   ];
   if (order.phone) lines.push('📞 ' + esc(order.phone));
   if (order.address) lines.push('📍 ' + esc(order.address));
+  if (order.gift_name) lines.push('🎁 Положить в подарок: <b>' + esc(order.gift_name) + '</b>');
 
   const { chatId } = await telegramConfig();
   await tg.sendMessage(

@@ -25,7 +25,8 @@
       </nav>
       <nav class="nav-links" id="ownerNav" style="display:none;">
         <a class="btn ghost small" href="/">На сайт</a>
-        <button class="btn ghost small" id="discountBtn">🎁 Скидки</button>
+        <button class="btn ghost small" id="discountBtn">% Скидки</button>
+        <button class="btn ghost small" id="giftBtn">🎁 Подарки</button>
         <button class="btn ghost small" id="notifyBtn">🔔 Уведомления</button>
         <button class="btn ghost small" id="changePassBtn">Сменить пароль</button>
         <button class="btn small" id="ownerLogout">Выйти</button>
@@ -91,10 +92,15 @@
             <input type="number" id="pPrice" min="0" step="1" placeholder="0" />
           </div>
           <div>
+            <label>Цена по акции (₽)</label>
+            <input type="number" id="pSale" min="0" step="1" placeholder="без акции" title="Старая цена будет зачёркнута" />
+          </div>
+          <div>
             <label>Показывать в каталоге</label>
             <select id="pActive"><option value="1">Да</option><option value="0">Скрыть</option></select>
           </div>
         </div>
+        <div class="hint" style="margin-top:0;">Акционная цена должна быть меньше базовой — тогда на витрине базовая станет зачёркнутой.</div>
 
         <label>Фото модели (до 10)</label>
         <input type="file" id="pImages" accept="image/*,video/mp4,video/quicktime" multiple />
@@ -176,7 +182,7 @@
   <!-- Модалка скидок -->
   <div class="modal-backdrop" id="discountModal">
     <div class="modal wide">
-      <header><h2>🎁 Скидки за покупку</h2><button class="x" data-discclose>&times;</button></header>
+      <header><h2>% Скидки за покупку</h2><button class="x" data-discclose>&times;</button></header>
       <div class="content">
         <div class="notice">
           Правило работает так: если клиент <b>уже покупал</b> первую модель,
@@ -204,6 +210,38 @@
         <div id="dList" class="orders-list" style="padding:0;"></div>
       </div>
       <div class="actions"><button class="btn ghost" data-discclose>Закрыть</button></div>
+    </div>
+  </div>
+
+  <!-- Модалка подарков -->
+  <div class="modal-backdrop" id="giftModal">
+    <div class="modal wide">
+      <header><h2>🎁 Подарки за сумму заказа</h2><button class="x" data-giftclose>&times;</button></header>
+      <div class="content">
+        <div class="notice">
+          Если сумма заказа достигает указанного порога, клиент получает
+          выбранную модель <b>в подарок</b>. На витрине и в боте это видно заранее —
+          покупателю показывается, сколько осталось добрать до подарка.
+        </div>
+
+        <div class="row">
+          <div>
+            <label>Дарим модель</label>
+            <select id="gProduct"></select>
+          </div>
+          <div>
+            <label>При заказе от (₽)</label>
+            <input type="number" id="gMin" min="1" step="1" placeholder="3000" />
+          </div>
+        </div>
+
+        <button class="btn primary" id="gAdd" style="margin-top:14px;">Добавить подарок</button>
+        <div class="msg-error" id="gError"></div>
+
+        <label style="margin-top:18px;">Действующие подарки</label>
+        <div id="gList" class="orders-list" style="padding:0;"></div>
+      </div>
+      <div class="actions"><button class="btn ghost" data-giftclose>Закрыть</button></div>
     </div>
   </div>
 

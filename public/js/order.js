@@ -88,6 +88,7 @@ async function listMyOrders() {
         <div class="info">
           <h4>${esc(o.product_name)} ${o.variant_name ? '· ' + swHtml(o.variant_color) + esc(o.variant_name) : ''}</h4>
           <div class="sub">${o.quantity} шт · ${money(o.total)} · оплата при получении · ${fmtDate(o.created_at)}</div>
+          ${o.gift_name ? `<div class="sub gift-line">🎁 Подарок: ${esc(o.gift_name)}</div>` : ''}
         </div>
         <div class="right">
           <span class="status-pill status-${o.status}">${STATUS[o.status] || o.status}</span>
@@ -113,7 +114,8 @@ async function openOrderChat(token) {
     <div class="order-item" style="margin-bottom:16px;">
       <div class="info">
         <h4>${esc(o.product_name)} ${o.variant_name ? '· ' + swHtml(o.variant_color) + esc(o.variant_name) : ''}</h4>
-        <div class="sub">${o.quantity} шт · Итого ${money(o.total)} · 💵 оплата при получении</div>
+        <div class="sub">${o.quantity} шт · Итого ${money(o.total)}${o.discount_percent ? ` · скидка ${o.discount_percent}%` : ''} · 💵 оплата при получении</div>
+        ${o.gift_name ? `<div class="sub gift-line">🎁 В подарок: ${esc(o.gift_name)}</div>` : ''}
         ${o.address ? `<div class="sub">Выдача: ${esc(o.address)}</div>` : ''}
       </div>
       <div class="right"><span class="status-pill status-${o.status}" id="statusPill">${STATUS[o.status] || o.status}</span></div>

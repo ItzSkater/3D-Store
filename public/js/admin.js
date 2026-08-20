@@ -133,7 +133,11 @@ function renderAdminCard(p) {
         <h3>${esc(p.name)} ${p.is_active ? '' : '<span class="inactive-tag">скрыта</span>'}</h3>
         <p class="desc">${esc(p.description) || '—'}</p>
         ${chips ? `<div class="chips">${chips}</div>` : ''}
-        <div class="price">${money(p.price)}</div>
+        <div class="price">${
+          p.sale_price !== null && p.sale_price !== undefined && p.sale_price < p.price
+            ? `<span class="old-price">${money(p.price)}</span> ${money(p.sale_price)}`
+            : money(p.price)
+        }</div>
         <button class="btn small" data-edit="${p.id}">Редактировать</button>
       </div>
     </div>`;
@@ -441,6 +445,7 @@ function openProduct(p) {
     $('pName').value = p.name;
     $('pDesc').value = p.description || '';
     $('pPrice').value = p.price;
+    $('pSale').value = p.sale_price === null || p.sale_price === undefined ? '' : p.sale_price;
     $('pActive').value = String(p.is_active);
     renderCurrentImages(p.images || []);
     (p.variants || []).forEach((v) => addVariantRow(v.name, v.extra_price, v.color, v.stock));
@@ -451,6 +456,7 @@ function openProduct(p) {
     $('pName').value = '';
     $('pDesc').value = '';
     $('pPrice').value = '';
+    $('pSale').value = '';
     $('pActive').value = '1';
     renderCurrentImages([]);
     $('deleteProductBtn').style.display = 'none';
@@ -473,6 +479,7 @@ $('saveProductBtn').addEventListener('click', async () => {
   fd.append('name', name);
   fd.append('description', $('pDesc').value.trim());
   fd.append('price', $('pPrice').value || '0');
+  fd.append('sale_price', $('pSale').value.trim());
   fd.append('is_active', $('pActive').value);
   fd.append('variants', JSON.stringify(collectVariants()));
   fd.append('remove_images', JSON.stringify(removeImages));
@@ -523,6 +530,7 @@ function renderOrderRow(o) {
         <h4>#${o.id} · ${esc(o.product_name)} ${o.variant_name ? '· ' + swHtml(o.variant_color) + esc(o.variant_name) : ''}</h4>
         <div class="sub">${esc(o.customer_name)}${o.username ? ' (@' + esc(o.username) + ')' : ''}${o.phone ? ' · ' + esc(o.phone) : ''} · ${o.quantity} шт · ${money(o.total)}</div>
         <div class="sub">${o.address ? 'Выдача: ' + esc(o.address) + ' · ' : ''}${fmtDate(o.created_at)}</div>
+        ${o.gift_name ? `<div class="sub gift-line">🎁 Положить в подарок: ${esc(o.gift_name)}</div>` : ''}
       </div>
       <div class="right">
         <span class="status-pill status-${o.status}">${STATUS[o.status] || o.status}</span>
@@ -542,7 +550,8 @@ function openOrder(o) {
       Клиент: ${esc(o.customer_name)}${o.username ? ' (@' + esc(o.username) + ')' : ''}<br/>
       ${o.phone ? 'Телефон: ' + esc(o.phone) + '<br/>' : ''}
       ${o.address ? 'Выдача: ' + esc(o.address) + '<br/>' : ''}
-      Количество: ${o.quantity} · Итого: <b>${money(o.total)}</b> · 💵 оплата при получении
+      Количество: ${o.quantity} · Итого: <b>${money(o.total)}</b>${o.discount_percent ? ' · скидка ' + o.discount_percent + '%' : ''} · 💵 оплата при получении
+      ${o.gift_name ? '<br/>🎁 Положить в подарок: <b>' + esc(o.gift_name) + '</b>' : ''}
     </div>`;
   $('orderStatus').value = o.status;
   orderModal.classList.add('open');
@@ -781,6 +790,68 @@ $('dAdd').addEventListener('click', async () => {
   if (!res.ok) { $('dError').textContent = data.error || 'Ошибка'; return; }
   $('dPercent').value = '';
   loadDiscounts();
+});
+
+// ---------- Подарки за сумму заказа ----------
+const giftModal = $('giftModal');
+
+async function openGifts() {
+  $('gError').textContent = '';
+  $('gMin').value = '';
+  const res = await fetch('/api/products');
+  const products = res.ok ? await res.json() : [];
+  $('gProduct').innerHTML = products.map((p) => `<option value="${p.id}">${esc(p.name)}</option>`).join('');
+  await loadGiftList();
+  giftModal.classList.add('open');
+}
+
+async function loadGiftList() {
+  const res = await fetch('/api/gifts');
+  if (!res.ok) return;
+  const list = await res.json();
+  const box = $('gList');
+  if (!list.length) {
+    box.innerHTML = '<div class="empty" style="padding:26px;">Подарков пока нет.</div>';
+    return;
+  }
+  box.innerHTML = list
+    .map(
+      (g) => `
+      <div class="order-item">
+        <div class="info">
+          <h4>«${esc(g.product_name)}» в подарок</h4>
+          <div class="sub">при заказе от ${money(g.min_total)}</div>
+        </div>
+        <div class="right"><button class="btn danger small" data-gdel="${g.id}">Удалить</button></div>
+      </div>`
+    )
+    .join('');
+  box.querySelectorAll('[data-gdel]').forEach((b) =>
+    b.addEventListener('click', async () => {
+      if (!confirm('Удалить подарок?')) return;
+      await fetch('/api/gifts/' + b.dataset.gdel, { method: 'DELETE' });
+      loadGiftList();
+    })
+  );
+}
+
+$('giftBtn').addEventListener('click', openGifts);
+giftModal.querySelectorAll('[data-giftclose]').forEach((el) =>
+  el.addEventListener('click', () => giftModal.classList.remove('open'))
+);
+giftModal.addEventListener('click', (e) => { if (e.target === giftModal) giftModal.classList.remove('open'); });
+
+$('gAdd').addEventListener('click', async () => {
+  $('gError').textContent = '';
+  const res = await fetch('/api/gifts', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ product_id: $('gProduct').value, min_total: $('gMin').value }),
+  });
+  const data = await res.json();
+  if (!res.ok) { $('gError').textContent = data.error || 'Ошибка'; return; }
+  $('gMin').value = '';
+  loadGiftList();
 });
 
 boot();

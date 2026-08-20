@@ -38,6 +38,22 @@ function swHtml(spec, cls) {
   return bg ? `<i class="sw${cls ? ' ' + cls : ''}" style="background:${bg}"></i>` : '';
 }
 
+// Итоговая цена: сначала акционная цена модели, затем персональная скидка
+function priceOf(p) {
+  const base = p.sale_price !== null && p.sale_price !== undefined && p.sale_price < p.price
+    ? p.sale_price
+    : p.price;
+  const d = Number(p.discount) || 0;
+  return Math.round(base * (100 - d)) / 100;
+}
+function priceInfo(p) {
+  const final = priceOf(p);
+  const off = p.price > 0 ? Math.round((1 - final / p.price) * 100) : 0;
+  return { final, off, discounted: final < p.price };
+}
+
+let gifts = [];
+
 function skeletons(n) {
   return Array.from({ length: n })
     .map(() => '<div class="skeleton"><div class="sk-img"></div><div class="sk-line"></div><div class="sk-line short"></div></div>')
@@ -54,8 +70,10 @@ async function loadCatalog() {
       return;
     }
     lastProducts = products;
+    renderGiftBar();
     catalogEl.innerHTML = products.map(renderCard).join('');
     catalogEl.querySelectorAll('.card .thumb').forEach(initSlider);
+    catalogEl.querySelectorAll('[data-card]').forEach(initExpand);
     catalogEl.querySelectorAll('[data-order]').forEach((btn) => {
       btn.addEventListener('click', () => {
         const id = btn.dataset.order;
@@ -99,23 +117,54 @@ function renderCard(p) {
     .join('');
   const more = (p.variants || []).length > 4 ? `<span class="chip">+${p.variants.length - 4}</span>` : '';
 
-  // Персональная скидка клиента
-  const d = Number(p.discount) || 0;
-  const priceHtml = d
-    ? `<span class="old-price">${money(p.price)}</span> ${money(p.price * (100 - d) / 100)}`
+  // Цена с учётом акции и персональной скидки
+  const pi = priceInfo(p);
+  const extra = (p.variants || []).some((v) => Number(v.extra_price) > 0);
+  const priceHtml = pi.discounted
+    ? `<span class="old-price">${money(p.price)}</span> ${money(pi.final)}`
     : money(p.price);
 
   return `
-    <div class="card">
-      <div class="thumb">${media}${d ? `<span class="sale-badge">−${d}%</span>` : ''}</div>
+    <div class="card" data-card="${p.id}">
+      <div class="thumb">${media}${pi.off > 0 ? `<span class="sale-badge">−${pi.off}%</span>` : ''}</div>
       <div class="body">
         <h3>${esc(p.name)}</h3>
         <p class="desc">${esc(p.description) || 'Модель для 3D-печати'}</p>
         ${chips ? `<div class="chips">${chips}${more}</div>` : ''}
-        <div class="price">${priceHtml} <small>${p.variants && p.variants.length ? 'от базовой цены' : ''}</small></div>
+        <div class="price">${priceHtml}${extra ? ' <small>+ доплата за цвет</small>' : ''}</div>
+        <button type="button" class="expand-hint" data-hint aria-expanded="false">Рассмотреть подробнее</button>
         <button class="btn primary" data-order="${p.id}">Заказать</button>
       </div>
     </div>`;
+}
+
+// Клик по карточке (но не по кнопке и не по фото) разворачивает её крупнее
+function setHint(card, open) {
+  const h = card.querySelector('[data-hint]');
+  if (!h) return;
+  h.textContent = open ? 'Свернуть' : 'Рассмотреть подробнее';
+  h.setAttribute('aria-expanded', open ? 'true' : 'false');
+}
+
+function toggleCard(card) {
+  const willOpen = !card.classList.contains('expanded');
+  catalogEl.querySelectorAll('.card.expanded').forEach((c) => {
+    c.classList.remove('expanded');
+    setHint(c, false);
+  });
+  if (willOpen) {
+    card.classList.add('expanded');
+    setHint(card, true);
+    card.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  }
+}
+
+function initExpand(card) {
+  // Мышью — клик по любому месту карточки, кроме кнопки заказа и фото
+  card.addEventListener('click', (e) => {
+    if (e.target.closest('[data-order], .thumb')) return;
+    toggleCard(card);
+  });
 }
 
 function initSlider(thumb) {
@@ -175,9 +224,14 @@ function galleryHtml(p) {
 function openOrder(product) {
   current.product = product;
   document.getElementById('orderTitle').textContent = 'Заказ: ' + product.name;
+  const pi = priceInfo(product);
+  const priceLine = pi.discounted
+    ? `<span class="old-price">${money(product.price)}</span> <b>${money(pi.final)}</b> <span class="save">выгода ${money(product.price - pi.final)}</span>`
+    : `<b>${money(product.price)}</b>`;
   document.getElementById('orderSummary').innerHTML =
     galleryHtml(product) +
-    `<div class="notice">${esc(product.description) || 'Модель для 3D-печати'}</div>`;
+    `<div class="notice">${esc(product.description) || 'Модель для 3D-печати'}</div>` +
+    `<div class="order-price">${priceLine} <small>за штуку</small></div>`;
   document.querySelectorAll('#orderSummary [data-gal]').forEach((t) =>
     t.addEventListener('click', () => {
       const main = document.getElementById('galMain');
@@ -247,6 +301,10 @@ function updateTotal() {
   const extra = current.variant ? current.variant.extra : 0;
   const qtyInput = document.getElementById('qty');
   let qty = Math.max(1, parseInt(qtyInput.value, 10) || 1);
+  const base = current.product.sale_price !== null && current.product.sale_price !== undefined
+    && current.product.sale_price < current.product.price
+    ? current.product.sale_price
+    : current.product.price;
   // Не даём заказать больше, чем есть на складе
   const stock = current.variant ? current.variant.stock : null;
   if (stock !== null && stock !== undefined && qty > stock) {
@@ -255,9 +313,11 @@ function updateTotal() {
   }
   qtyInput.max = stock !== null && stock !== undefined ? stock : '';
   const d = Number(current.product.discount) || 0;
-  const unit = Math.round((current.product.price + extra) * (100 - d)) / 100;
+  const unit = Math.round((base + extra) * (100 - d)) / 100;
   const total = unit * qty;
   document.getElementById('totalPreview').value = money(total) + (d ? ` (−${d}%)` : '');
+  const gn = document.getElementById('giftNote');
+  if (gn) gn.innerHTML = giftHint(total);
 }
 
 async function submitOrder() {
@@ -311,8 +371,58 @@ modal.querySelectorAll('[data-close]').forEach((el) => el.addEventListener('clic
 modal.addEventListener('click', (e) => { if (e.target === modal) modal.classList.remove('open'); });
 
 // После входа/регистрации перезагружаем каталог — появятся персональные скидки
+// Полоса с подарками за сумму заказа
+async function loadGifts() {
+  try {
+    const res = await fetch('/api/gifts');
+    gifts = res.ok ? await res.json() : [];
+  } catch {
+    gifts = [];
+  }
+  renderGiftBar();
+}
+
+function renderGiftBar() {
+  const box = document.getElementById('giftBar');
+  if (!box) return;
+  if (!gifts.length) { box.innerHTML = ''; return; }
+  box.innerHTML = gifts
+    .map(
+      (g) => `
+      <div class="gift-item">
+        ${g.image ? `<img src="/img/${esc(g.image)}" alt="${esc(g.product_name)}" />` : '<span class="gift-emoji">🎁</span>'}
+        <div>
+          <b>${esc(g.product_name)}</b> в подарок
+          <span>при заказе от ${money(g.min_total)}</span>
+        </div>
+      </div>`
+    )
+    .join('');
+}
+
+// Сколько осталось до подарка при текущей сумме
+function giftHint(total) {
+  if (!gifts.length) return '';
+  const earned = gifts.filter((g) => g.min_total <= total).sort((a, b) => b.min_total - a.min_total)[0];
+  const next = gifts.filter((g) => g.min_total > total).sort((a, b) => a.min_total - b.min_total)[0];
+  const got = earned ? `<div class="gift-note ok">🎁 Подарок: <b>${esc(earned.product_name)}</b></div>` : '';
+  if (!next) return got;
+  const left = next.min_total - total;
+  const from = earned ? earned.min_total : 0;
+  // Полоса растёт от предыдущего порога к следующему, а не от нуля
+  const pct = Math.max(0, Math.min(100, Math.round(((total - from) / (next.min_total - from)) * 100)));
+  return (
+    got +
+    `<div class="gift-note">
+      ${earned ? 'До следующего подарка' : 'До подарка'} «${esc(next.product_name)}» не хватает <b>${money(left)}</b>
+      <span class="gift-bar"><i style="width:${pct}%"></i></span>
+    </div>`
+  );
+}
+
 window.onAuthLogin = () => loadCatalog();
 window.onAuthLogout = () => loadCatalog();
 
 window.Auth.refresh();
 loadCatalog();
+loadGifts();

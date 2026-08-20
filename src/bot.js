@@ -22,6 +22,25 @@ let running = false;
 let stopped = false;
 let offset = 0;
 
+// Действующая цена модели: акционная, если задана и ниже обычной
+function effectivePrice(p) {
+  const sale = p.sale_price;
+  if (sale !== null && sale !== undefined && sale >= 0 && sale < p.price) return sale;
+  return p.price;
+}
+
+// Подарок за сумму заказа: самый «дорогой» перекрытый порог
+async function giftForTotal(total) {
+  const row = await db.get(
+    `SELECT g.min_total, p.id, p.name
+       FROM gifts g JOIN products p ON p.id = g.product_id
+      WHERE g.min_total <= ?
+      ORDER BY g.min_total DESC LIMIT 1`,
+    [total]
+  );
+  return row || null;
+}
+
 // Скидка клиенту на модель: действует, если он уже покупал модель-триггер.
 async function discountFor(userId, productId) {
   if (!userId || !productId) return 0;
@@ -114,7 +133,11 @@ async function showCatalog(chatId) {
   if (!products.length) {
     return tg.sendMessage(chatId, 'Пока нет доступных моделей. Загляните позже 🙂', mainMenu());
   }
-  const rows = products.map((p) => [{ text: `${p.name} — ${money(p.price)}`, callback_data: 'p:' + p.id }]);
+  const rows = products.map((p) => {
+    const eff = effectivePrice(p);
+    const label = eff < p.price ? `${p.name} — ${money(eff)} (было ${money(p.price)})` : `${p.name} — ${money(p.price)}`;
+    return [{ text: label, callback_data: 'p:' + p.id }];
+  });
   return tg.sendMessage(chatId, '🛍 <b>Каталог моделей</b>\nВыберите модель:', tg.inlineKeyboard(rows));
 }
 
@@ -132,18 +155,20 @@ async function showProduct(chatId, productId) {
         const stockNote = tracked ? ` · ${v.stock} шт` : '';
         return [
           {
-            text: `${v.name}${v.extra_price ? ' (+' + money(v.extra_price) + ')' : ''} — ${money(p.price + v.extra_price)}${stockNote}`,
+            text: `${v.name}${v.extra_price ? ' (+' + money(v.extra_price) + ')' : ''} — ${money(effectivePrice(p) + v.extra_price)}${stockNote}`,
             callback_data: `v:${p.id}:${v.id}`,
           },
         ];
       })
-    : [[{ text: `Заказать — ${money(p.price)}`, callback_data: `v:${p.id}:0` }]];
+    : [[{ text: `Заказать — ${money(effectivePrice(p))}`, callback_data: `v:${p.id}:0` }]];
   rows.push([{ text: '← Назад к каталогу', callback_data: 'cat' }]);
 
   const caption =
     `<b>${esc(p.name)}</b>\n\n` +
     (p.description ? esc(p.description) + '\n\n' : '') +
-    `Цена: <b>${money(p.price)}</b>\n` +
+    (effectivePrice(p) < p.price
+      ? `Цена: <s>${money(p.price)}</s> <b>${money(effectivePrice(p))}</b>\n`
+      : `Цена: <b>${money(p.price)}</b>\n`) +
     (variants.length ? 'Выберите вариант филамента:' : 'Нажмите, чтобы заказать:');
 
   if (p.image) {
@@ -196,8 +221,12 @@ async function showConfirm(chatId, data) {
     await clearState(chatId);
     return tg.sendMessage(chatId, 'Модель недоступна.', mainMenu());
   }
-  const unit = p.price + (v ? v.extra_price : 0);
+  // Считаем ровно так же, как при оформлении: акция → персональная скидка → подарок
+  const buyer = await db.get('SELECT * FROM users WHERE telegram_chat_id = ?', [String(chatId)]);
+  const percent = buyer ? await discountFor(buyer.id, p.id) : 0;
+  const unit = Math.round((effectivePrice(p) + (v ? v.extra_price : 0)) * (100 - percent)) / 100;
   const total = unit * data.quantity;
+  const gift = await giftForTotal(total);
   data.total = total;
   await setState(chatId, 'confirm', data);
 
@@ -205,7 +234,8 @@ async function showConfirm(chatId, data) {
     '🧾 <b>Проверьте заказ</b>\n\n' +
     `<b>${esc(p.name)}</b>${v ? ' · ' + esc(v.name) : ''}\n` +
     `Количество: ${data.quantity}\n` +
-    `Итого: <b>${money(total)}</b>\n` +
+    `Итого: <b>${money(total)}</b>${percent ? ` (скидка ${percent}%)` : ''}\n` +
+    (gift ? `🎁 Подарок: <b>${esc(gift.name)}</b>\n` : '') +
     '💵 Оплата при получении\n\n' +
     `👤 ${esc(data.customer_name)}\n` +
     (data.phone ? `📞 ${esc(data.phone)}\n` : '') +
@@ -235,7 +265,7 @@ async function createOrder(chatId, from) {
   }
   const v = data.variant_id ? await db.get('SELECT * FROM variants WHERE id = ?', [data.variant_id]) : null;
   const percent = await discountFor(user.id, p.id);
-  const unit = Math.round((p.price + (v ? v.extra_price : 0)) * (100 - percent)) / 100;
+  const unit = Math.round((effectivePrice(p) + (v ? v.extra_price : 0)) * (100 - percent)) / 100;
   const qty = Math.max(1, parseInt(data.quantity, 10) || 1);
 
   // Проверка остатка (если отслеживается)
@@ -251,12 +281,13 @@ async function createOrder(chatId, from) {
   }
 
   const total = unit * qty;
+  const gift = await giftForTotal(total);
   const token = crypto.randomBytes(24).toString('hex');
 
   const info = await db.run(
     `INSERT INTO orders
-       (token, user_id, product_id, variant_id, product_name, variant_name, unit_price, quantity, total, customer_name, phone, address, discount_percent)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       (token, user_id, product_id, variant_id, product_name, variant_name, unit_price, quantity, total, customer_name, phone, address, discount_percent, gift_product_id, gift_name)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       token,
       user.id,
@@ -271,6 +302,8 @@ async function createOrder(chatId, from) {
       data.phone || '',
       data.address || '',
       percent,
+      gift ? gift.id : null,
+      gift ? gift.name : '',
     ]
   );
   const orderId = Number(info.lastInsertRowid);
@@ -297,7 +330,8 @@ async function createOrder(chatId, from) {
     `✅ <b>Заказ #${orderId} принят!</b>\n\n` +
       `<b>${esc(p.name)}</b>${v ? ' · ' + esc(v.name) : ''}\n` +
       `${qty} шт · Итого <b>${money(total)}</b>\n` +
-      (percent ? `🎁 Ваша скидка: <b>${percent}%</b>\n` : '') +
+      (percent ? `💜 Ваша скидка: <b>${percent}%</b>\n` : '') +
+      (gift ? `🎁 Подарок к заказу: <b>${esc(gift.name)}</b>\n` : '') +
       '💵 Оплата при получении\n\n' +
       'Продавец скоро свяжется с вами. Здесь же можно написать ему сообщение.',
     tg.inlineKeyboard([

@@ -408,6 +408,25 @@ function applyDiscount(price, percent) {
   return Math.round(price * (100 - percent)) / 100;
 }
 
+// Действующая цена модели: акционная, если задана и ниже обычной
+function effectivePrice(p) {
+  const sale = p.sale_price;
+  if (sale !== null && sale !== undefined && sale >= 0 && sale < p.price) return sale;
+  return p.price;
+}
+
+// Подарок за сумму заказа: берём самый «дорогой» порог, который перекрыт
+async function giftForTotal(total) {
+  const row = await db.get(
+    `SELECT g.min_total, p.id, p.name
+       FROM gifts g JOIN products p ON p.id = g.product_id
+      WHERE g.min_total <= ?
+      ORDER BY g.min_total DESC LIMIT 1`,
+    [total]
+  );
+  return row || null;
+}
+
 // Нормализация цвета варианта: {"c":["#hex",...],"m":bool} или пусто.
 // До 4 цветов (2+ = градиент), m — металлик.
 function normColor(raw) {
@@ -449,6 +468,14 @@ app.get('/api/products/:id', wrap(async (req, res) => {
   if (!p.is_active && !(await isOwner(req))) return res.status(404).json({ error: 'Модель не найдена' });
   res.json(await attachVariants(p));
 }));
+
+// Акционная цена: пусто/0/выше обычной — акции нет
+function parseSalePrice(raw, price) {
+  if (raw === undefined || raw === null || String(raw).trim() === '') return null;
+  const v = Number(raw);
+  if (!Number.isFinite(v) || v <= 0 || v >= price) return null;
+  return Math.round(v * 100) / 100;
+}
 
 function parseVariants(raw) {
   let list = [];
@@ -501,12 +528,13 @@ app.post('/api/products', requireOwner, upload.array('images', MAX_IMAGES), wrap
   if (!name) return res.status(400).json({ error: 'Укажите название модели' });
   const description = String(req.body.description || '').trim();
   const price = Number(req.body.price) || 0;
+  const sale_price = parseSalePrice(req.body.sale_price, price);
   const is_active = req.body.is_active === '0' ? 0 : 1;
   const variants = parseVariants(req.body.variants);
 
   const info = await db.run(
-    'INSERT INTO products (name, description, price, image, is_active) VALUES (?, ?, ?, ?, ?)',
-    [name, description, price, '', is_active]
+    'INSERT INTO products (name, description, price, image, is_active, sale_price) VALUES (?, ?, ?, ?, ?, ?)',
+    [name, description, price, '', is_active, sale_price]
   );
   const productId = Number(info.lastInsertRowid);
 
@@ -535,11 +563,14 @@ app.put('/api/products/:id', requireOwner, upload.array('images', MAX_IMAGES), w
   const price = req.body.price !== undefined ? Number(req.body.price) || 0 : p.price;
   const is_active = req.body.is_active === undefined ? p.is_active : req.body.is_active === '0' ? 0 : 1;
 
-  await db.run('UPDATE products SET name=?, description=?, price=?, is_active=? WHERE id=?', [
+  const sale_price =
+    req.body.sale_price !== undefined ? parseSalePrice(req.body.sale_price, price) : p.sale_price;
+  await db.run('UPDATE products SET name=?, description=?, price=?, is_active=?, sale_price=? WHERE id=?', [
     name,
     description,
     price,
     is_active,
+    sale_price,
     p.id,
   ]);
 
@@ -577,6 +608,39 @@ app.put('/api/products/:id', requireOwner, upload.array('images', MAX_IMAGES), w
     await insertVariants(p.id, variants);
   }
   res.json(await attachVariants(await db.get('SELECT * FROM products WHERE id = ?', [p.id])));
+}));
+
+// --- Подарки за сумму заказа ---
+// Список открыт всем: это витринная информация, а не секрет.
+app.get('/api/gifts', wrap(async (req, res) => {
+  const rows = await db.all(
+    `SELECT g.id, g.min_total, g.product_id, p.name AS product_name, p.image
+       FROM gifts g JOIN products p ON p.id = g.product_id
+      ORDER BY g.min_total`
+  );
+  res.json(rows);
+}));
+
+app.post('/api/gifts', requireOwner, wrap(async (req, res) => {
+  const product_id = parseInt(req.body.product_id, 10);
+  const min_total = Number(req.body.min_total);
+  if (!product_id) return res.status(400).json({ error: 'Выберите модель-подарок' });
+  if (!(min_total > 0)) return res.status(400).json({ error: 'Укажите сумму больше нуля' });
+  const p = await db.get('SELECT id FROM products WHERE id = ?', [product_id]);
+  if (!p) return res.status(400).json({ error: 'Модель не найдена' });
+
+  const dup = await db.get('SELECT id FROM gifts WHERE min_total = ?', [min_total]);
+  if (dup) {
+    await db.run('UPDATE gifts SET product_id = ? WHERE id = ?', [product_id, dup.id]);
+    return res.json({ ok: true, id: dup.id, updated: true });
+  }
+  const info = await db.run('INSERT INTO gifts (product_id, min_total) VALUES (?, ?)', [product_id, min_total]);
+  res.json({ ok: true, id: Number(info.lastInsertRowid) });
+}));
+
+app.delete('/api/gifts/:id', requireOwner, wrap(async (req, res) => {
+  await db.run('DELETE FROM gifts WHERE id = ?', [req.params.id]);
+  res.json({ ok: true });
 }));
 
 // --- Скидки (владелец) ---
@@ -687,6 +751,9 @@ app.delete('/api/products/:id', requireOwner, wrap(async (req, res) => {
   if (p.image && !imgs.some((r) => String(r.image_id) === String(p.image))) await deleteImage(p.image);
   await db.run('DELETE FROM product_images WHERE product_id = ?', [p.id]);
   await db.run('DELETE FROM variants WHERE product_id = ?', [p.id]);
+  // Чистим правила, которые ссылались на модель, иначе останутся «висячие» скидки и подарки
+  await db.run('DELETE FROM gifts WHERE product_id = ?', [p.id]);
+  await db.run('DELETE FROM discounts WHERE trigger_product_id = ? OR target_product_id = ?', [p.id, p.id]);
   await db.run('DELETE FROM products WHERE id = ?', [p.id]);
   res.json({ ok: true });
 }));
@@ -699,6 +766,7 @@ function serializeOrder(o) {
     variant_name: o.variant_name,
     variant_color: o.variant_color || null,
     discount_percent: o.discount_percent || 0,
+    gift_name: o.gift_name || '',
     unit_price: o.unit_price,
     quantity: o.quantity,
     total: o.total,
@@ -732,14 +800,15 @@ app.post('/api/orders', requireUser, wrap(async (req, res) => {
       return res.status(400).json({ error: `В наличии только ${variant.stock} шт этого цвета` });
     }
   }
-  const unit = applyDiscount(product.price + (variant ? variant.extra_price : 0), percent);
+  const unit = applyDiscount(effectivePrice(product) + (variant ? variant.extra_price : 0), percent);
   const total = unit * qty;
+  const gift = await giftForTotal(total);
   const token = newToken();
 
   const info = await db.run(
     `INSERT INTO orders
-       (token, user_id, product_id, variant_id, product_name, variant_name, unit_price, quantity, total, customer_name, phone, address, discount_percent)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       (token, user_id, product_id, variant_id, product_name, variant_name, unit_price, quantity, total, customer_name, phone, address, discount_percent, gift_product_id, gift_name)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       token,
       req.user.id,
@@ -754,6 +823,8 @@ app.post('/api/orders', requireUser, wrap(async (req, res) => {
       String(phone || '').trim() || req.user.phone || '',
       String(address || '').trim(),
       percent,
+      gift ? gift.id : null,
+      gift ? gift.name : '',
     ]
   );
 

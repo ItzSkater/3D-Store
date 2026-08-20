@@ -59,6 +59,9 @@
   --accent-soft: rgba(94, 106, 210, .1);
   --accent-glow: rgba(94, 106, 210, .22);
   --bubble: #f4f5f8;
+  /* Зелёный из тёмной темы на белом читается плохо — берём темнее */
+  --ok: #157f52;
+  --ok-soft: rgba(21, 127, 82, .1);
   --shadow: 0 1px 3px rgba(0, 0, 0, .08);
   --shadow-lg: 0 16px 48px rgba(0, 0, 0, .12);
 }
@@ -247,7 +250,7 @@ header.site .container {
 
 .card .thumb {
   position: relative;
-  aspect-ratio: 4 / 3;
+  aspect-ratio: 1 / 1;
   background:
     radial-gradient(70% 60% at 50% 0%, var(--surface-2), transparent 70%),
     var(--bg-2);
@@ -275,15 +278,42 @@ header.site .container {
 .card .price small { font-size: 12px; color: var(--text-3); font-weight: 400; margin-left: 4px; }
 .card .btn { margin-top: 14px; width: 100%; }
 
-/* Первая модель — крупной плиткой, чтобы не было «трёх одинаковых колонок» */
-@media (min-width: 900px) {
-  #catalog { align-items: start; }
-  #catalog .card:first-child { grid-column: span 2; }
-  #catalog .card:first-child .thumb { aspect-ratio: 16 / 9; }
-  #catalog .card:first-child .body { padding: 24px 24px 26px; }
-  #catalog .card:first-child h3 { font-size: 21px; letter-spacing: -.022em; }
-  #catalog .card:first-child .desc { font-size: 15px; -webkit-line-clamp: 3; }
-  #catalog .card:first-child .btn { width: auto; align-self: flex-start; padding: 0 20px; }
+/* Клик по карточке (мимо кнопки и фото) разворачивает её крупнее остальных */
+#catalog { align-items: start; }
+#catalog .card { cursor: pointer; }
+.card .expand-hint {
+  font-size: 12px; color: var(--text-3); margin-top: 2px;
+  display: inline-flex; align-items: center; gap: 5px;
+  align-self: flex-start; padding: 0; border: none; background: none;
+  font-family: inherit; cursor: pointer; text-align: left;
+  opacity: 0; transition: opacity .16s ease, color .16s ease;
+}
+.card .expand-hint::after { content: '↓'; font-size: 11px; }
+.card.expanded .expand-hint::after { content: '↑'; }
+.card .expand-hint:hover { color: var(--text-2); }
+/* Подсказка не мозолит глаза: показываем при наведении, фокусе и в развёрнутом виде */
+.card:hover .expand-hint,
+.card .expand-hint:focus-visible,
+.card.expanded .expand-hint { opacity: 1; }
+@media (hover: none) {
+  .card .expand-hint { opacity: 1; }
+}
+.card.expanded { grid-column: 1 / -1; cursor: default; }
+.card.expanded .desc { -webkit-line-clamp: unset; display: block; overflow: visible; font-size: 14.5px; margin-bottom: 0; }
+.card.expanded h3 { font-size: 22px; letter-spacing: -.022em; }
+.card.expanded .price { font-size: 18px; }
+.card.expanded:hover { transform: none; }
+
+@media (min-width: 760px) {
+  /* Развёрнутая карточка: фото слева, описание справа */
+  /* Занимает всю строку — так она заметно крупнее соседей и в сетке нет дыр */
+  .card.expanded { display: grid; grid-template-columns: minmax(0, 320px) minmax(0, 1fr); }
+  .card.expanded .thumb { aspect-ratio: 1 / 1; height: 100%; }
+  .card.expanded .body { padding: 26px 26px 28px; justify-content: center; gap: 9px; }
+  .card.expanded .btn { width: auto; align-self: flex-start; padding: 0 22px; }
+}
+@media (min-width: 1100px) {
+  .card.expanded { grid-template-columns: minmax(0, 380px) minmax(0, 1fr); }
 }
 
 .chips { display: flex; flex-wrap: wrap; gap: 5px 12px; margin-top: 3px; }
@@ -347,6 +377,19 @@ h4 .sw, .notice .sw { margin-right: 5px; }
   border-radius: 6px; font-size: 12px; font-weight: 500; padding: 3px 8px;
 }
 .old-price { color: var(--text-3); text-decoration: line-through; font-weight: 400; font-size: 13.5px; margin-right: 6px; }
+/* Цена в модалке заказа */
+.order-price {
+  display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 8px;
+  font-size: 16px; margin: 12px 0 4px; letter-spacing: -.01em;
+}
+.order-price b { font-weight: 550; }
+.order-price small { color: var(--text-3); font-size: 12.5px; font-weight: 400; }
+.order-price .save {
+  font-size: 12px; color: var(--ok); background: var(--ok-soft);
+  border-radius: 5px; padding: 2px 7px; font-weight: 500;
+}
+
+.gift-line { color: var(--ok); }
 
 /* Слайды и листалка */
 .thumb .slide { display: none; width: 100%; height: 100%; object-fit: cover; }
@@ -641,6 +684,32 @@ button, .btn { -webkit-appearance: none; appearance: none; }
 .crop-box i[data-hnd="sw"] { left: -7px; bottom: -7px; cursor: nesw-resize; }
 .crop-box i[data-hnd="se"] { right: -7px; bottom: -7px; cursor: nwse-resize; }
 
+/* ---------- Подарки за сумму заказа ---------- */
+.gift-bar-row { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 18px; }
+.gift-item {
+  display: flex; align-items: center; gap: 11px;
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--r); padding: 9px 14px 9px 9px;
+  font-size: 13.5px; color: var(--text-2);
+}
+.gift-item img { width: 38px; height: 38px; object-fit: cover; border-radius: var(--r-sm); }
+.gift-item .gift-emoji { width: 38px; height: 38px; display: grid; place-items: center; font-size: 19px; background: var(--surface-2); border-radius: var(--r-sm); }
+.gift-item b { color: var(--text); font-weight: 510; }
+.gift-item span { display: block; font-size: 12.5px; color: var(--text-3); }
+
+.gift-note {
+  margin-top: 14px; padding: 11px 13px;
+  background: var(--surface-2); border: 1px solid var(--border);
+  border-radius: var(--r); font-size: 13.5px; color: var(--text-2);
+}
+.gift-note.ok { border-color: color-mix(in srgb, var(--accent) 55%, transparent); background: var(--accent-soft); color: var(--text); }
+.gift-note b { color: var(--text); font-weight: 510; }
+.gift-bar {
+  display: block; height: 4px; margin-top: 8px;
+  background: var(--surface-3); border-radius: 99px; overflow: hidden;
+}
+.gift-bar i { display: block; height: 100%; background: var(--accent); border-radius: 99px; transition: width .35s var(--ease); }
+
 /* ---------- Прочее ---------- */
 .notice {
   background: var(--bg-2);
@@ -670,6 +739,9 @@ img { max-width: 100%; }
   .hero-actions .btn { flex: 1; }
 
   .grid { grid-template-columns: 1fr 1fr; gap: 10px; padding: 22px 0 64px; }
+  .card.expanded { grid-column: 1 / -1; }
+  .card.expanded h3 { font-size: 18px; }
+  .card.expanded .body { padding: 16px 16px 18px; }
   .card .body { padding: 12px 12px 14px; gap: 5px; }
   .card .body h3 { font-size: 14px; }
   .card .desc { font-size: 12.5px; }

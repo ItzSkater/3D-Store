@@ -100,6 +100,13 @@ const SCHEMA = [
      user_id INTEGER NOT NULL,
      created_at TEXT NOT NULL DEFAULT (datetime('now'))
    )`,
+  // Подарки: «заказ от N рублей — в подарок модель X»
+  `CREATE TABLE IF NOT EXISTS gifts (
+     id INTEGER PRIMARY KEY AUTOINCREMENT,
+     product_id INTEGER NOT NULL,
+     min_total REAL NOT NULL,
+     created_at TEXT NOT NULL DEFAULT (datetime('now'))
+   )`,
   // Скидки: «купил модель A — на модель B скидка N%»
   `CREATE TABLE IF NOT EXISTS discounts (
      id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -149,6 +156,12 @@ async function init() {
   await addColumnIfMissing('variants', 'stock', 'INTEGER');
   // Применённая к заказу скидка в процентах (0 — без скидки)
   await addColumnIfMissing('orders', 'discount_percent', 'INTEGER DEFAULT 0');
+  // Акционная цена модели: NULL — акции нет, число — цена со скидкой
+  await addColumnIfMissing('products', 'sale_price', 'REAL');
+  // Подарок, попавший в заказ
+  await addColumnIfMissing('orders', 'gift_product_id', 'INTEGER');
+  await addColumnIfMissing('orders', 'gift_name', "TEXT DEFAULT ''");
+  await client.execute('CREATE INDEX IF NOT EXISTS idx_gifts_min ON gifts(min_total)');
   await client.execute(
     'CREATE INDEX IF NOT EXISTS idx_disc_target ON discounts(target_product_id)'
   );
