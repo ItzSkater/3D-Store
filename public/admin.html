@@ -3,16 +3,19 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <!-- Светлая тема принудительно: иначе iOS в тёмном режиме перекрашивает поля и кнопки -->
-  <meta name="color-scheme" content="light" />
+  <meta name="color-scheme" content="light dark" />
   <meta name="theme-color" content="#eef1f6" />
   <title>Кабинет владельца — 3D-Store</title>
   <link rel="stylesheet" href="/css/style.css" />
+  <script src="/js/theme.js"></script>
 </head>
 <body>
   <header class="site">
     <div class="container">
       <a class="brand" href="/"><span class="logo">🧊</span><span>3D-Store · Владелец</span></a>
+      <nav class="nav-links">
+        <button class="btn theme-toggle" id="themeToggle" type="button" title="Тема">🌗</button>
+      </nav>
       <nav class="nav-links" id="ownerNav" style="display:none;">
         <a class="btn ghost small" href="/">На сайт</a>
         <button class="btn ghost small" id="discountBtn">🎁 Скидки</button>
