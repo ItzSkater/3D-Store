@@ -38,7 +38,14 @@ function swHtml(spec, cls) {
   return bg ? `<i class="sw${cls ? ' ' + cls : ''}" style="background:${bg}"></i>` : '';
 }
 
+function skeletons(n) {
+  return Array.from({ length: n })
+    .map(() => '<div class="skeleton"><div class="sk-img"></div><div class="sk-line"></div><div class="sk-line short"></div></div>')
+    .join('');
+}
+
 async function loadCatalog() {
+  if (!lastProducts.length) catalogEl.innerHTML = skeletons(3);
   try {
     const res = await fetch('/api/products');
     const products = await res.json();
@@ -71,14 +78,14 @@ function mediaHtml(m, cls) {
   if (m.kind === 'video') {
     return `<video class="${cls}" src="/img/${id}" autoplay loop muted playsinline preload="metadata"></video>`;
   }
-  return `<img class="${cls}" src="/img/${id}" alt="" loading="lazy" />`;
+  return `<img class="${cls}" src="/img/${id}" alt="${esc(m.alt || 'Фото модели')}" loading="lazy" />`;
 }
 
 function renderCard(p) {
   const imgs = (p.images && p.images.length ? p.images : p.image ? [{ id: p.image, kind: 'image' }] : []);
   const multi = imgs.length > 1;
   const media = imgs.length
-    ? imgs.map((m, i) => mediaHtml(m, 'slide' + (i === 0 ? ' on' : ''))).join('') +
+    ? imgs.map((m, i) => mediaHtml({ ...m, alt: p.name }, 'slide' + (i === 0 ? ' on' : ''))).join('') +
       (multi
         ? `<button type="button" class="snav prev" data-nav="-1" aria-label="Предыдущее фото">‹</button>` +
           `<button type="button" class="snav next" data-nav="1" aria-label="Следующее фото">›</button>` +
@@ -162,7 +169,7 @@ function galleryHtml(p) {
           )
           .join('')}</div>`
       : '';
-  return `<div class="gallery"><div class="gal-main" id="galMain">${mediaHtml(imgs[0], 'gal-media on')}</div>${thumbs}</div>`;
+  return `<div class="gallery"><div class="gal-main" id="galMain">${mediaHtml({ ...imgs[0], alt: p.name }, 'gal-media on')}</div>${thumbs}</div>`;
 }
 
 function openOrder(product) {

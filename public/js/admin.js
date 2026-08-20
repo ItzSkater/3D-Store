@@ -112,7 +112,7 @@ function renderAdminCard(p) {
   const img = first
     ? (first.kind === 'video'
         ? `<video src="/img/${esc(first.id)}" muted loop playsinline autoplay></video>`
-        : `<img src="/img/${esc(first.id)}" alt="" />`) +
+        : `<img src="/img/${esc(first.id)}" alt="${esc(p.name)}" />`) +
       (media.length > 1 ? `<span class="photo-count">📷 ${media.length}</span>` : '')
     : '<div class="placeholder">🧊</div>';
   const chips = (p.variants || [])
@@ -295,7 +295,7 @@ function fitBox(ratio) {
 function openCrop(imageId) {
   const pid = $('pId').value;
   if (!pid) {
-    alert('Сначала сохраните модель, потом можно обрезать фото.');
+    $('productError').textContent = 'Сначала сохраните модель — потом её фото можно обрезать.';
     return;
   }
   cropState.imageId = imageId;

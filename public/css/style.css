@@ -29,18 +29,18 @@
   --danger: #d32f2f;
   --danger-soft: rgba(211, 47, 47, .12);
 
-  --radius: 18px;
-  --radius-sm: 12px;
-  --shadow: 0 4px 24px rgba(0, 0, 0, .08);
-  --shadow-lg: 0 12px 40px rgba(0, 0, 0, .14);
+  --radius: 22px;
+  --radius-sm: 10px;
+  --shadow: 0 4px 24px rgba(20, 24, 40, .10);
+  --shadow-lg: 0 12px 40px rgba(20, 24, 40, .16);
 }
 
 /* Тёмная тема: по системной настройке… */
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
-    --bg: #000000;
-    --bg-alt: #1d1d1f;
-    --surface: #1d1d1f;
+    --bg: #0a0a0c;
+    --bg-alt: #17171a;
+    --surface: #1c1c1e;
     --surface-2: #2c2c2e;
     --text: #f5f5f7;
     --text-2: #a1a1a6;
@@ -51,7 +51,7 @@
     --accent-soft: rgba(41, 151, 255, .16);
     --on-accent: #ffffff;
     --bubble: #26262a;
-    --nav-bg: rgba(0, 0, 0, .72);
+    --nav-bg: rgba(10, 10, 12, .72);
     --ok: #4ad07f;
     --ok-soft: rgba(74, 208, 127, .16);
     --warn: #ffd166;
@@ -69,9 +69,9 @@
 
 /* …и по ручному переключателю */
 :root[data-theme="dark"] {
-  --bg: #000000;
-  --bg-alt: #1d1d1f;
-  --surface: #1d1d1f;
+  --bg: #0a0a0c;
+  --bg-alt: #17171a;
+  --surface: #1c1c1e;
   --surface-2: #2c2c2e;
   --text: #f5f5f7;
   --text-2: #a1a1a6;
@@ -82,7 +82,7 @@
   --accent-soft: rgba(41, 151, 255, .16);
   --on-accent: #ffffff;
   --bubble: #26262a;
-  --nav-bg: rgba(0, 0, 0, .72);
+  --nav-bg: rgba(10, 10, 12, .72);
   --ok: #4ad07f;
   --ok-soft: rgba(74, 208, 127, .16);
   --warn: #ffd166;
@@ -113,6 +113,18 @@ body {
   -webkit-font-smoothing: antialiased;
   transition: background .25s ease, color .25s ease;
 }
+
+/* Едва заметное зерно — плоская заливка выглядит стерильно */
+body::after {
+  content: ""; position: fixed; inset: 0; pointer-events: none; z-index: 0;
+  opacity: .025;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+body > * { position: relative; z-index: 1; }
+
+p, .desc, .sub, .hint { text-wrap: pretty; }
+/* Цены и количества — табличными цифрами, чтобы не «прыгали» */
+.price, .old-price, .vprice, .vstock, .status-pill, .sub { font-variant-numeric: tabular-nums; }
 
 a { color: var(--accent); text-decoration: none; }
 a:hover { text-decoration: underline; }
@@ -269,6 +281,25 @@ header.site .container {
 }
 .card .price small { display: block; font-size: 12px; color: var(--text-2); font-weight: 400; margin-top: 2px; }
 .card .btn { margin-top: 14px; }
+
+/* Ломаем «три одинаковые колонки»: первая модель — крупной плиткой */
+@media (min-width: 900px) {
+  /* Плитки не растягиваются под самую высокую — каждая своей высоты */
+  #catalog { align-items: start; }
+  #catalog .card:first-child { grid-column: span 2; }
+  #catalog .card:first-child .thumb { aspect-ratio: 16 / 10; }
+  #catalog .card:first-child .body { padding: 30px 26px 34px; }
+  #catalog .card:first-child h3 { font-size: 28px; letter-spacing: -.02em; }
+  #catalog .card:first-child .desc { font-size: 17px; max-height: none; -webkit-line-clamp: 3; }
+}
+
+/* Скелетоны вместо крутящегося спиннера */
+.skeleton { background: var(--bg-alt); border-radius: 22px; overflow: hidden; }
+.skeleton .sk-img { aspect-ratio: 1 / 1; background: var(--surface-2); }
+.skeleton .sk-line { height: 12px; margin: 14px 22px 0; border-radius: 6px; background: var(--surface-2); }
+.skeleton .sk-line.short { width: 55%; margin-bottom: 24px; }
+.skeleton .sk-img, .skeleton .sk-line { animation: pulse 1.6s ease-in-out infinite; }
+@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: .55; } }
 
 .chips { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; }
 .chip {
@@ -468,6 +499,17 @@ select {
   background-size: 6px 6px; background-repeat: no-repeat;
 }
 button, .btn { -webkit-appearance: none; appearance: none; }
+
+/* Доступность: заметное кольцо фокуса при навигации с клавиатуры */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+  border-radius: 6px;
+}
+:focus:not(:focus-visible) { outline: none; }
+
+/* Текущая страница в навигации */
+.nav-links .btn[aria-current="page"] { opacity: 1; font-weight: 500; color: var(--accent); }
 .row { display: flex; gap: 14px; }
 .row > * { flex: 1; }
 .hint { font-size: 13.5px; color: var(--text-2); margin-top: 10px; }

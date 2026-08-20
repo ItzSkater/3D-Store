@@ -857,6 +857,12 @@ app.use(express.static(path.join(ROOT, 'public')));
 app.get('/admin', (req, res) => res.sendFile(path.join(ROOT, 'public', 'admin.html')));
 app.get('/order', (req, res) => res.sendFile(path.join(ROOT, 'public', 'order.html')));
 
+// Своя страница 404 для неизвестных адресов (кроме API)
+app.use((req, res, next) => {
+  if (req.path.startsWith('/api/') || req.path.startsWith('/img/')) return next();
+  res.status(404).sendFile(path.join(ROOT, 'public', '404.html'));
+});
+
 // Обработчик ошибок
 app.use((err, req, res, next) => {
   console.error(err);
