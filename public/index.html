@@ -3,13 +3,16 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <meta name="color-scheme" content="light dark" />
-  <meta name="theme-color" content="#ffffff" />
+  <meta name="color-scheme" content="dark light" />
+  <meta name="theme-color" content="#08090a" />
   <meta name="description" content="Каталог моделей для 3D-печати: выбор цвета филамента, оплата при получении, чат с продавцом." />
   <meta property="og:type" content="website" />
   <meta property="og:title" content="3D-Store — модели, напечатанные на 3D-принтере" />
   <meta property="og:description" content="Каталог моделей для 3D-печати: выбор цвета филамента, оплата при получении, чат с продавцом." />
   <title>3D-Store — модели для 3D-печати</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;450;500;510;600&display=swap" />
   <link rel="stylesheet" href="/css/style.css" />
   <script src="/js/theme.js"></script>
 </head>
@@ -31,10 +34,16 @@
 
   <main class="container">
     <section class="hero">
-      <h1>Модели, напечатанные на 3D-принтере</h1>
-      <p>Выбирайте готовые модели, указывайте нужный филамент и оформляйте заказ. Обсудить детали можно в чате прямо на сайте.</p>
-      <div class="badge-cod">💵 Оплата при получении</div>
+      <span class="badge-cod"><span class="sw" style="background:linear-gradient(160deg,#5e6ad2,#8b93e8)"></span> Оплата при получении</span>
+      <h1>Модели, напечатанные<br />на 3D-принтере</h1>
+      <p>Выбирайте готовые модели, указывайте цвет филамента и оформляйте заказ. Все детали — в чате с продавцом.</p>
+      <div class="hero-actions">
+        <a class="btn primary" href="#catalog">Смотреть каталог</a>
+        <a class="btn ghost" href="/order">Мои заказы →</a>
+      </div>
     </section>
+
+    <hr class="hairline" />
 
     <h2 class="section-title">Каталог</h2>
     <p class="section-sub">Выберите модель и цвет филамента.</p>
